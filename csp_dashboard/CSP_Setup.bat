@@ -89,13 +89,13 @@ if exist "%TMPX%" rmdir /s /q "%TMPX%"
 powershell -NoProfile -Command "Expand-Archive -Path '%TMPZIP%' -DestinationPath '%TMPX%' -Force"
 if errorlevel 1 ( echo [X] Extract failed. & pause & exit /b 1 )
 
-REM If the zip wraps everything in a single top folder, step into it.
+REM Locate INSTALL.bat inside the extracted tree and install from that folder.
+REM The GitHub zipball wraps the repo in a single top folder (<repo>-<branch>\),
+REM and the CSP app lives in its  csp_dashboard\  subfolder — so INSTALL.bat is
+REM one or two levels deep. Find it wherever it is (only csp_dashboard has one).
 set "SRCDIR=%TMPX%"
-if not exist "%TMPX%\INSTALL.bat" (
-    for /f "delims=" %%D in ('dir /b /ad "%TMPX%" 2^>nul') do (
-        if exist "%TMPX%\%%D\INSTALL.bat" set "SRCDIR=%TMPX%\%%D"
-    )
-)
+for /f "delims=" %%F in ('dir /b /s "%TMPX%\INSTALL.bat" 2^>nul') do set "SRCDIR=%%~dpF"
+if "%SRCDIR:~-1%"=="\" set "SRCDIR=%SRCDIR:~0,-1%"
 
 REM ---------- 3. Copy into C:\CSP_Platform ----------
 REM On a FRESH machine everything is copied. On a RE-RUN of an already-set-up
