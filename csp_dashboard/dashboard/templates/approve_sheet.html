@@ -1,0 +1,204 @@
+<title>Manual Review &amp; Approve — CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <a href="/welcome" class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">manual review &amp; approve</span>
+      </span>
+    </a>
+    <div class="ops-rail">
+      <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      <a href="/campaign/{{ campaign_id }}?batch_id={{ batch_id }}" class="btn btn-outline-secondary btn-sm" data-i18n="nav.backdash">Back to Dashboard</a>
+      <a href="/logout" class="btn btn-outline-secondary btn-sm" data-i18n="nav.logout">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<main class="container-fluid mt-3" style="max-width:1400px">
+
+  <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-3">
+    <div>
+      <h4 class="mb-1">Manual Review &amp; Approve</h4>
+      <div class="text-muted small">
+        Check each customer, then approve the ones you want to message. Click a name to open
+        the full record and edit it. Approving ticks the box here. Nothing is sent until you
+        press <strong>Send Approved Now</strong>.
+      </div>
+    </div>
+    <div class="text-end">
+      <div class="small text-muted mb-1">
+        <strong id="approvedCount">{{ approved_count }}</strong> approved ·
+        {{ cases|length }} reachable customer(s) to review
+        {% if not_reachable_count %}
+        · {{ not_reachable_count }} not-reachable hidden (they appear in Escalations on the dashboard)
+        {% endif %}
+      </div>
+      <div class="d-flex gap-2">
+        <button class="btn btn-outline-primary btn-sm" onclick="approveAll()">Approve All Remaining</button>
+        <button class="btn btn-success btn-sm" onclick="sendApproved()">Send Approved Now</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="alertBox"></div>
+
+  <div class="card">
+    <div class="card-body p-0" style="max-height:78vh;overflow:auto">
+      <table class="table table-sm table-hover align-middle mb-0">
+        <thead class="table-light" style="position:sticky;top:0;z-index:1">
+          <tr>
+            <th style="width:40px">#</th>
+            <th style="width:70px">Approved</th>
+            <th>Name</th>
+            <th>Mobile</th>
+            <th>Band</th>
+            <th>Village</th>
+            <th style="width:210px">Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          {# "Approved" means the CSP put this case into the send pipeline —
+             NOT merely that a communication row exists. Unreachable / both-
+             channels-failed cases carry an 'escalated'/'*_failed' row that was
+             created automatically, and must never show as approved or sent. #}
+          {% set QUEUED = ['pending','wa_attempted','wa_delivered','wa_read','sms_sent','sms_delivered'] %}
+          {% set FAILED = ['escalated','wa_failed','sms_failed'] %}
+          {% for c in cases %}
+          {% set approved = c.comm_status in QUEUED %}
+          {% set pending = c.comm_status == 'pending' %}
+          {% set sent = approved and not pending %}
+          {% set failed = c.comm_status in FAILED %}
+          {% set reachable = (c.mobile or '')|trim|length > 0 %}
+          <tr id="row-{{ c.case_id }}">
+            <td class="text-muted small">{{ loop.index }}</td>
+            <td class="tick-cell">
+              {% if approved %}<span class="badge bg-success">✓</span>
+              {% elif failed %}<span class="badge bg-danger">not reachable</span>{% endif %}
+            </td>
+            <td>
+              <span class="masked-name">{{ c.name }}</span>
+            </td>
+            <td>{% if c.mobile %}<span class="masked-mobile">{{ c.mobile }}</span>{% else %}— none —{% endif %}</td>
+            <td><span class="badge bg-secondary">{{ c.band_label }}</span></td>
+            <td>{{ c.village or '-' }}</td>
+            <td class="action-cell">
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="/campaign/{{ campaign_id }}/case/{{ c.case_id }}?from=sheet">Open &amp; edit</a>
+              {% if sent %}
+                <span class="text-muted small">already sent</span>
+              {% elif pending %}
+                <button class="btn btn-sm btn-outline-danger btn-undo"
+                        onclick="unapproveOne('{{ c.case_id }}', this)">Undo</button>
+              {% elif failed %}
+                <span class="text-danger small">both channels failed — needs CSP visit</span>
+              {% elif reachable %}
+                <button class="btn btn-sm btn-success btn-approve"
+                        onclick="approveOne('{{ c.case_id }}', this)">Approve</button>
+              {% else %}
+                <span class="text-muted small">no mobile</span>
+              {% endif %}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</main>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/mask.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+const CAMPAIGN = "{{ campaign_id }}";
+const BATCH = "{{ batch_id }}";
+
+function showAlert(msg, kind) {
+  document.getElementById("alertBox").innerHTML =
+    `<div class="alert alert-${kind || 'danger'} py-2">${msg}</div>`;
+}
+
+function bumpCount(delta) {
+  const el = document.getElementById("approvedCount");
+  el.textContent = Math.max(0, parseInt(el.textContent, 10) + delta);
+}
+
+function markApproved(caseId) {
+  const row = document.getElementById("row-" + caseId);
+  if (!row) return;
+  row.querySelector(".tick-cell").innerHTML = '<span class="badge bg-success">✓</span>';
+  const undo = document.createElement("button");
+  undo.className = "btn btn-sm btn-outline-danger btn-undo";
+  undo.textContent = "Undo";
+  undo.onclick = () => unapproveOne(caseId, undo);
+  const btn = row.querySelector(".btn-approve");
+  if (btn) btn.replaceWith(undo);
+  bumpCount(+1);
+}
+
+function markUnapproved(caseId) {
+  const row = document.getElementById("row-" + caseId);
+  if (!row) return;
+  row.querySelector(".tick-cell").innerHTML = "";
+  const approve = document.createElement("button");
+  approve.className = "btn btn-sm btn-success btn-approve";
+  approve.textContent = "Approve";
+  approve.onclick = () => approveOne(caseId, approve);
+  const btn = row.querySelector(".btn-undo");
+  if (btn) btn.replaceWith(approve);
+  bumpCount(-1);
+}
+
+function approveOne(caseId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  fetch(`/api/case/${caseId}/approve`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) markApproved(caseId);
+      else { showAlert(d.reason || "Could not approve."); if (btn) { btn.disabled = false; btn.textContent = "Approve"; } }
+    })
+    .catch(() => { showAlert("Could not approve."); if (btn) { btn.disabled = false; btn.textContent = "Approve"; } });
+}
+
+function unapproveOne(caseId, btn) {
+  if (btn) { btn.disabled = true; btn.textContent = "…"; }
+  fetch(`/api/case/${caseId}/unapprove`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) markUnapproved(caseId);
+      else { showAlert(d.reason || "Could not undo."); if (btn) { btn.disabled = false; btn.textContent = "Undo"; } }
+    })
+    .catch(() => { showAlert("Could not undo."); if (btn) { btn.disabled = false; btn.textContent = "Undo"; } });
+}
+
+function approveAll() {
+  if (!confirm("Approve every remaining reachable, non-flagged case in this batch?")) return;
+  fetch(`/api/batch/${BATCH}/approve_remaining`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit: null }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.approved !== undefined) location.reload();
+      else showAlert(d.reason || "Could not approve remaining.");
+    });
+}
+
+function sendApproved() {
+  if (!confirm("Send WhatsApp messages now to all approved (ticked) cases?")) return;
+  fetch(`/api/batch/${BATCH}/send_approved`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.started) { showAlert("Sending started. Track progress on the dashboard.", "success");
+        setTimeout(() => window.location = `/campaign/${CAMPAIGN}?batch_id=${BATCH}`, 1500); }
+      else showAlert(d.reason || "Nothing approved to send yet.");
+    });
+}
+</script>
+</body>

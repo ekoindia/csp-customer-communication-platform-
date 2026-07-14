@@ -1,0 +1,364 @@
+<title>Review extracted data — CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <a href="/welcome" class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">verify before sending</span>
+      </span>
+    </a>
+    <div class="ops-rail">
+      <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      <button class="btn btn-outline-secondary btn-sm" onclick="cancelReview()" data-i18n="rev.cancel">Cancel</button>
+      <button id="confirmBtn" class="btn btn-success btn-sm" onclick="confirmReview()" data-i18n="rev.confirm">Confirm &amp; Create Cases</button>
+    </div>
+  </div>
+</nav>
+
+<main class="container-fluid mt-3" style="max-width:1600px">
+  <div class="alert alert-warning py-2 small mb-3">
+    <strong>Check the data before sending.</strong> The computer reads the scanned page
+    automatically, but it can make mistakes. Compare each row with the page image on the
+    left and correct anything wrong — especially the <em>mobile number</em>, <em>name</em>,
+    and <em>balance band</em>. A row with no valid mobile is kept as
+    <em>not reachable</em> and is never messaged. When everything looks correct, click
+    <strong>Confirm &amp; Create Cases</strong>.
+  </div>
+  <div class="small text-muted mb-3">
+    <strong>Keyboard (like a spreadsheet):</strong>
+    <kbd>↑</kbd> <kbd>↓</kbd> move up/down the same column ·
+    <kbd>←</kbd> <kbd>→</kbd> move between columns (at the edge of the text) ·
+    <kbd>Enter</kbd> moves down ·
+    <kbd>Ctrl</kbd>+<kbd>Z</kbd> undo · <kbd>Ctrl</kbd>+<kbd>Y</kbd> redo.
+    You can also just click any box and type to fix it.
+  </div>
+
+  {% if page_span %}
+  <div class="small text-muted mb-2">
+    Processed <strong>pages {{ page_span.from }}–{{ page_span.to }}</strong>
+    of {{ page_span.total }} in the document.
+    {% if page_span.to < page_span.total %}
+      To continue, upload the same file again with <em>from {{ page_span.to + 1 }}</em>.
+    {% endif %}
+  </div>
+  {% endif %}
+
+  <div id="summary" class="mb-3 d-flex gap-3 small text-muted"></div>
+
+  <div class="row g-3">
+    <!-- LEFT: the source (as read) — scanned page for PDF/image, or a read-only
+         table of the file's rows for CSV/Excel. Zoom applies to whichever is
+         shown, so the CSP can always compare the source with their corrections. -->
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span>{% if page_images %}Scanned page{{ "s" if page_images|length != 1 else "" }} (original){% else %}Source data (as read from your file){% endif %}</span>
+          <span class="d-flex align-items-center gap-1">
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="applyZoom(-0.25)" title="Zoom out">−</button>
+            <span id="zoomLabel" class="small text-muted" style="min-width:44px;text-align:center">100%</span>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="applyZoom(0.25)" title="Zoom in">+</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="resetZoom()" title="Reset zoom">Reset</button>
+          </span>
+        </div>
+        <div class="card-body p-2" style="max-height:78vh;overflow:auto">
+          <div id="leftZoom" style="transform-origin:top left">
+          {% if page_images %}
+            {% for img in page_images %}
+              <img src="/draft/{{ draft_id }}/page/{{ img }}" class="border mb-2 zoom-img"
+                   style="width:100%" alt="scanned page {{ loop.index }}" loading="lazy">
+            {% endfor %}
+          {% else %}
+            <div id="sourceTable" class="small text-muted p-2">Loading source rows…</div>
+          {% endif %}
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: editable corrections (equal width to the source panel) -->
+    <div class="col-lg-6">
+      <div class="card">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span>Extracted rows</span>
+          <button class="btn btn-sm btn-outline-primary" onclick="addRow()">+ Add row</button>
+        </div>
+        <div class="card-body p-0" style="max-height:78vh;overflow:auto">
+          <table class="table table-sm table-hover mb-0 align-middle" style="min-width:1180px">
+            <thead class="table-light" style="position:sticky;top:0;z-index:1">
+              <tr>
+                <th style="width:34px">#</th>
+                <th style="min-width:150px">Account no.</th>
+                <th style="min-width:150px">Name</th>
+                <th style="min-width:110px">Balance</th>
+                <th style="min-width:140px">Father name</th>
+                <th style="min-width:120px">Mobile</th>
+                <th style="min-width:110px">Taluka</th>
+                <th style="min-width:100px">Village</th>
+                <th style="min-width:200px">Address</th>
+                <th style="min-width:96px">Status</th>
+                <th style="width:34px"></th>
+              </tr>
+            </thead>
+            <tbody id="rowsBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+</main>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+const DRAFT_ID = "{{ draft_id }}";
+const CAMPAIGN = "{{ campaign_id }}";
+const INITIAL = {{ rows|tojson }};
+
+function validMobile(v) {
+  const d = (v || "").replace(/\D/g, "");
+  const t = (d.length === 12 && d.startsWith("91")) ? d.slice(2) : d;
+  return (t.length === 10 && "6789".includes(t[0])) ? t : "";
+}
+
+function rowHtml(r, idx) {
+  return `<tr data-idx="${idx}">
+    <td class="text-muted small">${idx + 1}</td>
+    <td><input class="form-control form-control-sm f-account" value="${esc(r.account_number)}"></td>
+    <td><input class="form-control form-control-sm f-name" value="${esc(r.name)}"></td>
+    <td><input class="form-control form-control-sm f-band" value="${esc(r.balance_band)}" placeholder="e.g. 100<1000"></td>
+    <td><input class="form-control form-control-sm f-father" value="${esc(r.father_name)}"></td>
+    <td><input class="form-control form-control-sm f-mobile" value="${esc(r.mobile)}"></td>
+    <td><input class="form-control form-control-sm f-taluka" value="${esc(r.taluka)}"></td>
+    <td><input class="form-control form-control-sm f-village" value="${esc(r.village)}"></td>
+    <td><input class="form-control form-control-sm f-address" value="${esc(r.address)}"></td>
+    <td class="status-cell"></td>
+    <td><button class="btn btn-sm btn-link text-danger p-0" onclick="deleteRow(this)">✕</button></td>
+  </tr>`;
+}
+
+function esc(s) { return (s == null ? "" : String(s)).replace(/"/g, "&quot;"); }
+
+function render() {
+  document.getElementById("rowsBody").innerHTML = INITIAL.map(rowHtml).join("");
+  renderSource();
+  refreshStatus();
+  seedHistory();
+}
+
+// ── Left "source" panel + zoom (compare view, all input types) ──
+const SRC_COLS = [
+  ["account_number", "Account no."], ["name", "Name"], ["balance_band", "Balance"],
+  ["father_name", "Father name"], ["mobile", "Mobile"], ["taluka", "Taluka"],
+  ["village", "Village"], ["address", "Address"],
+];
+
+function renderSource() {
+  // Only for spreadsheet uploads (no page image): show the file's rows read-only
+  // beside the editable copy, so there is always something to compare against.
+  const host = document.getElementById("sourceTable");
+  if (!host) return;
+  let html = "<table class='table table-sm table-bordered mb-0'><thead><tr><th>#</th>"
+    + SRC_COLS.map(c => `<th>${c[1]}</th>`).join("") + "</tr></thead><tbody>";
+  INITIAL.forEach((r, i) => {
+    html += `<tr><td class="text-muted">${i + 1}</td>`
+      + SRC_COLS.map(c => `<td>${esc(r[c[0]] || "")}</td>`).join("") + "</tr>";
+  });
+  html += "</tbody></table>";
+  host.innerHTML = html;
+}
+
+let zoom = 1;
+function applyZoom(delta) {
+  zoom = Math.min(3, Math.max(0.5, Math.round((zoom + delta) * 100) / 100));
+  const box = document.getElementById("leftZoom");
+  // CSS zoom resizes the content AND grows the scroll area, so both the scanned
+  // image and the source table actually get bigger and can be scrolled.
+  box.style.zoom = zoom;
+  document.getElementById("zoomLabel").textContent = Math.round(zoom * 100) + "%";
+}
+function resetZoom() { zoom = 1; applyZoom(0); }
+
+function addRow() {
+  const body = document.getElementById("rowsBody");
+  const idx = body.children.length;
+  body.insertAdjacentHTML("beforeend", rowHtml(
+    {account_number:"",name:"",balance_band:"",father_name:"",mobile:"",
+     taluka:"",village:"",address:""}, idx));
+  refreshStatus();
+  pushHistory();
+}
+
+function deleteRow(btn) {
+  btn.closest("tr").remove();
+  refreshStatus();
+  pushHistory();
+}
+
+// ── Undo / Redo (Ctrl+Z / Ctrl+Y) for the whole review grid ──
+// A snapshot of all rows is taken whenever a cell edit is committed, or a row
+// is added/deleted. Ctrl+Z steps back through those snapshots, Ctrl+Y forward.
+let history = [];
+let histIndex = -1;
+
+function seedHistory() { history = [collectRows()]; histIndex = 0; }
+
+function pushHistory() {
+  history = history.slice(0, histIndex + 1);
+  history.push(collectRows());
+  histIndex = history.length - 1;
+}
+
+function restoreHistory() {
+  document.getElementById("rowsBody").innerHTML = history[histIndex].map(rowHtml).join("");
+  refreshStatus();
+}
+
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey)) return;
+  const k = (e.key || "").toLowerCase();
+  if (k === "z" && !e.shiftKey) {
+    if (histIndex > 0) { e.preventDefault(); histIndex--; restoreHistory(); }
+  } else if (k === "y" || (k === "z" && e.shiftKey)) {
+    if (histIndex < history.length - 1) { e.preventDefault(); histIndex++; restoreHistory(); }
+  }
+});
+
+// Segregation rules (applied AFTER extraction) — mirror of the Python classifier.
+// Note: B>10000 is treated as a normal high-balance "urgent" case (no special
+// "verify" status) — the data is already verified twice (extraction review +
+// the case-detail check), so no extra verify flag is shown for it.
+function classifyBand(raw) {
+  const s = (raw || "").toUpperCase().replace(/\s/g, "");
+  if (!s) return null;
+  if (s.includes("B>") || s.startsWith(">") || s.includes(">10000")) return "urgent"; // B>10000 = high balance
+  const m = s.match(/^(\d+(?:\.\d)?)\s*</);
+  const v = m ? parseFloat(m[1]) : (isNaN(parseFloat(s)) ? null : parseFloat(s));
+  if (v === null) return null;               // unreadable band
+  if (v >= 1000) return "urgent";            // 1000<10000
+  return "normal";                            // 0.1<100 / 100<1000
+}
+
+function refreshStatus() {
+  let normal = 0, urgent = 0, notReach = 0, needsFix = 0;
+  document.querySelectorAll("#rowsBody tr").forEach(tr => {
+    const name = tr.querySelector(".f-name").value.trim();
+    const mob = validMobile(tr.querySelector(".f-mobile").value);
+    const band = tr.querySelector(".f-band").value.trim();
+    const cat = classifyBand(band);
+    const cell = tr.querySelector(".status-cell");
+    tr.classList.remove("table-warning", "table-danger");
+
+    if (!name || cat === null) {
+      cell.innerHTML = '<span class="badge bg-danger">needs fix</span>';
+      tr.classList.add("table-danger"); needsFix++;
+    } else if (!mob) {
+      cell.innerHTML = '<span class="badge bg-secondary">not reachable</span>';
+      tr.classList.add("table-warning"); notReach++;
+    } else if (cat === "urgent") {
+      cell.innerHTML = '<span class="badge bg-danger-subtle text-danger border border-danger">urgent</span>';
+      urgent++;
+    } else {
+      cell.innerHTML = '<span class="badge bg-success">normal</span>';
+      normal++;
+    }
+  });
+  document.getElementById("summary").innerHTML =
+    `<span class="me-2">Segregation:</span>` +
+    `<span><span class="badge bg-success">${normal}</span> normal</span>` +
+    `<span><span class="badge bg-danger-subtle text-danger border border-danger">${urgent}</span> urgent</span>` +
+    `<span><span class="badge bg-secondary">${notReach}</span> not reachable</span>` +
+    `<span><span class="badge bg-danger">${needsFix}</span> need a fix</span>`;
+}
+
+document.addEventListener("input", e => {
+  if (e.target.closest("#rowsBody")) refreshStatus();
+});
+
+// Take an undo snapshot when a cell edit is committed (blur / Enter).
+document.addEventListener("change", e => {
+  if (e.target.closest("#rowsBody")) pushHistory();
+});
+
+// ── Excel-like keyboard navigation across the editable cells ──
+// Up/Down move within the same column; Left/Right hop columns only when the
+// text cursor is already at the edge (so normal typing still works); Enter
+// moves down. The focused cell's text is selected so you can overtype it.
+function focusCell(rowIdx, colIdx) {
+  const rows = Array.from(document.querySelectorAll("#rowsBody tr"));
+  if (rowIdx < 0 || rowIdx >= rows.length) return false;
+  const inputs = rows[rowIdx].querySelectorAll("input");
+  if (colIdx < 0 || colIdx >= inputs.length) return false;
+  const el = inputs[colIdx];
+  el.focus(); el.select();
+  return true;
+}
+
+document.getElementById("rowsBody").addEventListener("keydown", e => {
+  const input = e.target;
+  if (input.tagName !== "INPUT") return;
+  const tr = input.closest("tr");
+  const rows = Array.from(document.querySelectorAll("#rowsBody tr"));
+  const rowIdx = rows.indexOf(tr);
+  const inputs = Array.from(tr.querySelectorAll("input"));
+  const colIdx = inputs.indexOf(input);
+  const atStart = input.selectionStart === 0 && input.selectionEnd === 0;
+  const atEnd = input.selectionStart === input.value.length &&
+                input.selectionEnd === input.value.length;
+
+  if (e.key === "ArrowDown" || e.key === "Enter") {
+    if (focusCell(rowIdx + 1, colIdx)) e.preventDefault();
+  } else if (e.key === "ArrowUp") {
+    if (focusCell(rowIdx - 1, colIdx)) e.preventDefault();
+  } else if (e.key === "ArrowRight" && atEnd) {
+    if (focusCell(rowIdx, colIdx + 1)) e.preventDefault();
+  } else if (e.key === "ArrowLeft" && atStart) {
+    if (focusCell(rowIdx, colIdx - 1)) e.preventDefault();
+  }
+});
+
+function collectRows() {
+  return Array.from(document.querySelectorAll("#rowsBody tr")).map(tr => ({
+    account_number: tr.querySelector(".f-account").value.trim(),
+    name: tr.querySelector(".f-name").value.trim(),
+    balance_band: tr.querySelector(".f-band").value.trim(),
+    father_name: tr.querySelector(".f-father").value.trim(),
+    mobile: validMobile(tr.querySelector(".f-mobile").value),
+    taluka: tr.querySelector(".f-taluka").value.trim(),
+    village: tr.querySelector(".f-village").value.trim(),
+    address: tr.querySelector(".f-address").value.trim(),
+  }));
+}
+
+function confirmReview() {
+  const btn = document.getElementById("confirmBtn");
+  btn.disabled = true; btn.textContent = "Saving…";
+  fetch(`/campaign/${CAMPAIGN}/review/${DRAFT_ID}/confirm`, {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify({rows: collectRows()}),
+  }).then(r => r.json()).then(d => {
+    if (d.ok) {
+      const dup = (d.stats && d.stats.duplicates) || 0;
+      if (dup > 0) {
+        alert(dup + " row(s) skipped — those account numbers are already in the "
+          + "system (duplicate page/upload). Cases created: " + d.stats.valid + ".");
+      }
+      window.location = d.redirect;
+    }
+    else { alert(d.error || "Could not save."); btn.disabled = false; btn.textContent = "Confirm & Create Cases"; }
+  });
+}
+
+function cancelReview() {
+  if (!confirm("Discard this upload? The extracted data will be deleted.")) return;
+  fetch(`/campaign/${CAMPAIGN}/review/${DRAFT_ID}/cancel`, {method: "POST"})
+    .then(r => r.json()).then(d => { window.location = d.redirect; });
+}
+
+render();
+</script>
+</body>

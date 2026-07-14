@@ -1,0 +1,79 @@
+{% extends "admin_base.html" %}
+{% block title %}Updates - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>Software updates</h1>
+<p class="sub">Publish a new version once; every CSP picks it up on its next sync
+  (Eko can't push into a CSP PC, so updates are pull-based). Optionally send an
+  "update now" nudge to apply on the next restart.</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ cfg.latest_version or '-' }}</div><div class="l">Published version</div></div>
+  <div class="card"><div class="v">{{ fleet|length }}</div><div class="l">CSPs</div></div>
+  <div class="card"><div class="v">{{ behind }}</div><div class="l">Not yet current</div></div>
+</div>
+
+<div class="panel">
+  <h2>1a · Publish a version — upload the .zip (recommended)</h2>
+  <form method="post" enctype="multipart/form-data" style="max-width:640px">
+    <input type="hidden" name="action" value="publish_file">
+    <label class="l" style="color:var(--soft)">Version (e.g. 1.1.0)</label>
+    <input name="version" value="{{ cfg.latest_version or '' }}" required>
+    <label class="l" style="color:var(--soft)">Update package (.zip)</label>
+    <input type="file" name="package" accept=".zip" required
+           style="width:100%;padding:9px 11px;margin:6px 0 12px;background:#0f1723;border:1px solid var(--line);border-radius:8px;color:var(--ink)">
+    <button type="submit">Upload &amp; publish</button>
+  </form>
+  <p class="note">Hosted here automatically; sha256 is computed for you — nothing to paste.</p>
+</div>
+
+<div class="panel">
+  <h2>1b · Publish a version — or point at an externally-hosted URL</h2>
+  <form method="post" style="max-width:640px">
+    <input type="hidden" name="action" value="publish">
+    <label class="l" style="color:var(--soft)">Version (e.g. 1.1.0)</label>
+    <input name="version" value="{{ cfg.latest_version or '' }}" required>
+    <label class="l" style="color:var(--soft)">Update package URL (.zip the CSP can reach)</label>
+    <input name="update_url" value="{{ cfg.update_url or '' }}" placeholder="https://admin.eko.co.in/updates/csp_platform_1.1.0.zip">
+    <label class="l" style="color:var(--soft)">SHA-256 of the .zip (integrity check; recommended)</label>
+    <input name="update_sha256" value="{{ cfg.update_sha256 or '' }}" placeholder="hex digest from build_installer output">
+    <button type="submit">Publish</button>
+  </form>
+  <p class="note">On the next sync each CSP compares its VERSION with this, then
+    downloads + verifies the .zip and stages it. Nothing applies until restart.</p>
+</div>
+
+<div class="panel">
+  <h2>2 · Push "update now" (optional)</h2>
+  <form method="post" style="max-width:640px;display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="action" value="push">
+    <div style="flex:1;min-width:220px">
+      <label class="l" style="color:var(--soft)">Target</label>
+      <select name="target" style="width:100%;padding:9px 11px;background:#0f1723;border:1px solid var(--line);border-radius:8px;color:var(--ink)">
+        <option value="__all__">All CSPs</option>
+        {% for c in fleet %}<option value="{{ c.csp_id }}">{{ c.name or c.csp_id }} ({{ c.csp_id }})</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" style="width:auto;padding:10px 20px">Queue update now</button>
+  </form>
+  <p class="note">Queues an <code>update_software</code> command delivered on that CSP's next sync.</p>
+</div>
+
+<div class="panel">
+  <h2>Fleet versions</h2>
+  <table>
+    <thead><tr><th>CSP</th><th>Installed</th><th>Status</th><th>Online</th></tr></thead>
+    <tbody>
+    {% for c in fleet %}
+      <tr>
+        <td><a class="row" href="{{ url_for('admin_ui.csp_detail', csp_id=c.csp_id) }}">{{ c.name or c.csp_id }}</a></td>
+        <td>{{ c.version or '-' }}</td>
+        <td>{% if c.current %}<span class="pill ok">current</span>{% else %}<span class="pill bad">behind</span>{% endif %}</td>
+        <td>{% if c.online %}<span class="pill on">online</span>{% else %}<span class="pill off">offline</span>{% endif %}</td>
+      </tr>
+    {% else %}
+      <tr><td colspan="4" style="color:var(--muted)">No CSPs reporting yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

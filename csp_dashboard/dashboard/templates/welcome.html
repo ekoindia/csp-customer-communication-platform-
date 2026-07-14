@@ -1,0 +1,75 @@
+<title>Select Campaign - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <span class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">campaign console</span>
+      </span>
+    </span>
+    <div class="ops-rail">
+      <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      <a href="/logout" class="btn btn-outline-secondary btn-sm" data-i18n="nav.logout">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<main class="ops-shell">
+  <section class="ops-hero">
+    <div class="ops-kicker">operator workspace</div>
+    <h1 class="ops-title">Campaigns</h1>
+    <p class="ops-subtitle">Select the active customer communication workflow.</p>
+  </section>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="alert alert-info alert-dismissible">
+        {{ messages[0] }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div class="row g-3">
+    <div class="col-md-4">
+      <a href="/campaign/inoperative_accounts/documents" class="text-decoration-none">
+        <div class="card border-primary h-100 campaign-card">
+          <div class="card-body">
+            <h6 class="card-title text-dark">Inoperative Accounts</h6>
+            <p class="card-text text-muted small">Notify customers whose accounts have had no activity.</p>
+            <span class="badge bg-success">Active</span>
+          </div>
+        </div>
+      </a>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-muted h-100">
+        <div class="card-body">
+          <h6 class="card-title">KYC Pending</h6>
+          <p class="small">Coming soon.</p>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-4">
+      <div class="card text-muted h-100">
+        <div class="card-body">
+          <h6 class="card-title">Aadhaar Linking</h6>
+          <p class="small">Coming soon.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+</main>
+<script src="/static/js/i18n.js"></script>
+</body>
+
+<style>
+  .campaign-card { transition: box-shadow .15s, transform .15s; }
+  .campaign-card:hover { box-shadow: 0 .4rem 1rem rgba(0,0,0,.12); transform: translateY(-2px); }
+</style>

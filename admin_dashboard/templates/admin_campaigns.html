@@ -1,0 +1,72 @@
+{% extends "admin_base.html" %}
+{% block title %}Campaigns - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>Campaign progress (fleet-wide)</h1>
+<p class="sub">Message tracking and physical-visit tracking, summed across every reporting CSP.
+  Aggregate counts only — no customer data.</p>
+
+{% for r in rows %}
+<div class="panel">
+  <h2>{{ r.campaign_id or 'campaign' }} &middot; {{ r.month or '-' }} &middot; {{ r.csps }} CSP{{ '' if r.csps == 1 else 's' }}</h2>
+  <div class="grid">
+    <div class="stat"><div class="v">{{ r.total }}</div><div class="l">Total cases</div></div>
+    <div class="stat"><div class="v">{{ r.reached }}</div><div class="l">Reached</div></div>
+    <div class="stat bad2"><div class="v">{{ r.failed }}</div><div class="l">Failed</div></div>
+    <div class="stat"><div class="v">{{ '%.0f'|format(r.reach_rate) }}%</div><div class="l">Reach rate</div></div>
+  </div>
+
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Message tracking</p>
+  <div class="grid">
+    <div class="stat wa"><div class="v">{{ r.wa_sent }}</div><div class="l">WA sent</div></div>
+    <div class="stat wa"><div class="v">{{ r.wa_delivered }}</div><div class="l">WA delivered</div></div>
+    <div class="stat wa"><div class="v">{{ r.wa_read }}</div><div class="l">WA read</div></div>
+    <div class="stat bad2"><div class="v">{{ r.wa_failed }}</div><div class="l">WA failed</div></div>
+    <div class="stat sms"><div class="v">{{ r.sms_sent }}</div><div class="l">SMS sent</div></div>
+    <div class="stat sms"><div class="v">{{ r.sms_delivered }}</div><div class="l">SMS delivered</div></div>
+    <div class="stat bad2"><div class="v">{{ r.sms_failed }}</div><div class="l">SMS failed</div></div>
+    <div class="stat bad2"><div class="v">{{ r.escalated }}</div><div class="l">Escalated</div></div>
+  </div>
+
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Physical-visit tracking</p>
+  <div class="grid">
+    <div class="stat visit"><div class="v">{{ r.visit_pending }}</div><div class="l">Pending visit</div></div>
+    <div class="stat visit"><div class="v">{{ r.visited }}</div><div class="l">Visited</div></div>
+    <div class="stat visit"><div class="v">{{ r.in_progress }}</div><div class="l">In progress</div></div>
+    <div class="stat visit"><div class="v">{{ r.completed }}</div><div class="l">Completed</div></div>
+    <div class="stat visit"><div class="v">{{ r.closed }}</div><div class="l">Closed</div></div>
+  </div>
+
+  {% if r.bands %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Balance-band reach (reached / total)</p>
+  {% for b in r.bands %}
+    <div class="bandrow">
+      <div class="nm">{{ b.band }}</div>
+      <div class="track"><div class="bar"><span style="width:{{ (100 * b.reached / b.total) if b.total else 0 }}%"></span></div></div>
+      <div class="n">{{ b.reached }} / {{ b.total }}</div>
+    </div>
+  {% endfor %}
+  {% endif %}
+
+  {% if r.per_csp %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Per-CSP breakdown</p>
+  <table>
+    <thead><tr><th>CSP</th><th>Total</th><th>Reached</th><th>Reach %</th>
+      <th>WA delivered</th><th>WA read</th><th>SMS delivered</th>
+      <th>Escalated</th><th>Visited</th><th>Closed</th></tr></thead>
+    <tbody>
+    {% for c in r.per_csp %}
+      <tr>
+        <td><a class="row" href="{{ url_for('admin_ui.csp_detail', csp_id=c.csp_id) }}">{{ c.csp_name or c.csp_id }}</a></td>
+        <td>{{ c.total }}</td><td>{{ c.reached }}</td><td>{{ '%.0f'|format(c.pct) }}%</td>
+        <td>{{ c.wa_delivered }}</td><td>{{ c.wa_read }}</td><td>{{ c.sms_delivered }}</td>
+        <td>{{ c.escalated }}</td><td>{{ c.visited }}</td><td>{{ c.closed }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  {% endif %}
+</div>
+{% else %}
+<div class="panel"><p style="color:var(--muted);margin:0">No campaign data reported yet.</p></div>
+{% endfor %}
+{% endblock %}

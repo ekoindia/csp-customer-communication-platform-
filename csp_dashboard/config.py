@@ -1,0 +1,150 @@
+import os
+
+from dotenv import load_dotenv
+
+# Loads variables from a local .env file (never committed — see .env.example)
+# into the process environment, so every os.environ.get() below can be set
+# there instead of hardcoded here or exported by hand each terminal session.
+# The path is resolved ABSOLUTELY (next to this config.py) rather than relying
+# on the current working directory, so the same .env loads whether the CSP app
+# runs from csp_dashboard/ or the admin portal imports `config` from the
+# sibling admin_dashboard/ folder. Safe no-op if .env doesn't exist yet.
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+# CSP identity — these are ONLY fallback placeholders / dev-test seed values.
+# The REAL values are entered by the CSP on the first-run onboarding screen and
+# stored in the branches table (settings.get_csp_settings() reads DB-first). On a
+# production install no branch is seeded, so these never reach a real message —
+# onboarding always sets them first. Kept env-overridable so nothing CSP-specific
+# is hardcoded in the shipped repo.
+CSP_NAME = os.environ.get("CSP_NAME", "Demo CSP")
+CSP_PHONE = os.environ.get("CSP_PHONE", "0000000000")
+CSP_ADDRESS = os.environ.get("CSP_ADDRESS", "Not set")
+
+# Dev/test seed login only (used when SEED_DEFAULT_USER is on). Production seeds
+# NO default login — the CSP sets their own ID + password during onboarding.
+LOGIN_ID = os.environ.get("LOGIN_ID", "CSP001")
+LOGIN_PASSWORD = os.environ.get("LOGIN_PASSWORD", "changeme")
+
+# First-run onboarding vs. a pre-seeded default operator.
+#   Real installs: FALSE  → no default login is seeded; on first launch the CSP
+#                           goes through the onboarding screen (before login) and
+#                           sets their OWN login ID + password + branch details.
+#   Tests/dev:     TRUE   → seed the CSP001/changeme operator and mark onboarding
+#                           complete, so the suite can log in without the wizard
+#                           (conftest sets this).
+SEED_DEFAULT_USER = os.environ.get("SEED_DEFAULT_USER", "0") == "1"
+
+# Language of the OUTGOING customer message (WhatsApp + SMS): "hi" (default,
+# best for rural SBI customers) or "en". Same finalised wording, translated.
+MESSAGE_LANGUAGE = "hi"
+
+WA_SERVER_URL = "http://localhost:3000"
+WA_DAILY_LIMIT = 200
+WA_DELAY_SECONDS = 12
+
+# Optional shared secret for inbound webhooks. If set (non-empty), inbound
+# webhook requests must carry header  X-Webhook-Token: <this value>.
+# Leave empty to rely on localhost-only binding.
+WEBHOOK_TOKEN = ""
+
+MSG91_AUTH_KEY = ""
+MSG91_SENDER_ID = ""
+MSG91_TEMPLATE_ID = ""
+
+# OCR engine for scanned documents.
+#   "auto"      = pick by hardware (see core/hardware.py): docTR if the machine
+#                 has >= OCR_RAM_THRESHOLD_GB of RAM, else Tesseract-only.
+#   "doctr"     = force docTR (deep learning, ~1 GB resident) always.
+#   "tesseract" = force the light Tesseract-only reader (~150 MB, no PyTorch) —
+#                 use on a very small CSP PC; feeds the SAME accurate grid logic.
+#   "paddle"    = PaddleOCR (kept as a future numpy-1 option; not installed).
+# All are fully local/on-premise (DPDP-safe, no cloud). The CSV/Excel/typed-PDF
+# paths never touch any of these — they use no OCR at all. Numeric cells
+# (account / mobile) are always cross-checked with a digit-whitelisted Tesseract
+# re-read regardless of engine.
+#
+# NOTE: PaddleOCR 2.7.x is NOT compatible with this project's numpy 2.x stack,
+# so "paddle" needs a dedicated numpy-1 environment. "auto" never selects it.
+OCR_ENGINE = "auto"
+
+# Below this much TOTAL RAM, "auto" mode drops docTR (PyTorch ~1 GB) for the
+# Tesseract-only reader so a 4 GB deployment PC doesn't swap/OOM. The real
+# deploy target (Dell Inspiron 3268) has 4 GB, so it lands on Tesseract-only.
+OCR_RAM_THRESHOLD_GB = 6
+
+# Safety valve: even on a machine that clears the total-RAM bar, "auto" mode
+# will NOT load docTR unless at least this much RAM is FREE right now — so a
+# bigger box under memory pressure also falls back to the light path instead of
+# OOMing. Checked per page at OCR time.
+DOCTR_MIN_FREE_RAM_GB = 2.5
+
+# Cap OCR CPU threads so a 2-core/4-thread i3 isn't oversubscribed.
+TORCH_MAX_THREADS = 4
+
+# docTR recognition backbone.
+#   "auto"          = "parseq" on a GPU (accurate, practical only with CUDA),
+#                     else "crnn_vgg16_bn" (light + much faster on CPU).
+#   "parseq" / "master" / "crnn_vgg16_bn" = force that backbone.
+# docTR auto-runs on the GPU when CUDA is available and falls back to CPU
+# otherwise — same code on the dev RTX 4060 box and the CPU-only deploy PC.
+DOCTR_RECO_ARCH = "auto"
+
+DB_PATH = "database/csp_platform.db"
+
+# ── Admin-portal reporting (CSP -> Eko) ─────────────────────────────────────
+# The local CSP app PUSHES a small, PII-FREE heartbeat + status to Eko's admin
+# portal (Eko can't reach into a CSP's local PC, so the CSP reports outbound).
+# What is sent is strictly allow-listed in core/admin_reporter.py: this install's
+# opaque id, app version, WhatsApp connected/banned flags, AGGREGATE campaign
+# progress counts, earnings, and audit EVENT TYPES. NEVER any customer PII.
+ADMIN_REPORT_ENABLED = os.environ.get("ADMIN_REPORT_ENABLED", "0") == "1"
+# ONE Eko API base (lives on Eko's server with the admin portal). Every CSP
+# install connects to this single API: it POSTs status to {base}/report and
+# polls {base}/sync for server-side info (latest version, config, commands).
+#
+# GO-LIVE (Eko, ONE-TIME, before building the production CSP_Platform.zip):
+# change the fallback string below to the real RAG-server URL, e.g.
+#   ADMIN_API_BASE = os.environ.get("ADMIN_API_BASE", "https://admin.eko.co.in/api/v1")
+# Every CSP that installs THAT build then defaults to the right server with
+# zero action on their part — this value is the SAME for all 523 CSPs, so it
+# is baked in here, not asked from the CSP (only CSP_ID + API_KEY are
+# per-install and are asked — see INSTALL.bat's "Connect to Eko Admin Portal"
+# step, or the dashboard's /admin-connect screen). The endpoint PATHS
+# (/report, /sync) never change, so nothing else about the API moves.
+ADMIN_API_BASE = os.environ.get("ADMIN_API_BASE", "http://122.176.147.78:8080/csp-admin/api/v1")
+ADMIN_CSP_ID = os.environ.get("ADMIN_CSP_ID", "CSP001")   # this install's opaque id
+ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "demo-key-CSP001")  # per-CSP key
+ADMIN_REPORT_INTERVAL_SEC = 300                    # heartbeat/sync cadence
+
+
+def _read_version() -> str:
+    # APP_VERSION lives in the VERSION file (NOT hard-coded here), because an
+    # auto-update PRESERVES config.py but OVERWRITES VERSION — so the version
+    # advances after an update instead of being stuck at whatever config.py had.
+    try:
+        p = os.path.join(os.path.dirname(os.path.abspath(__file__)), "VERSION")
+        with open(p, "r", encoding="utf-8") as f:
+            return f.read().strip() or "1.0.0"
+    except Exception:
+        return "1.0.0"
+
+
+APP_VERSION = _read_version()
+
+# ── Admin-portal SERVER binding (used only on Eko's server, by admin_dashboard/app.py)
+# Local demo binds 127.0.0.1:7000. On the real server, set ADMIN_BIND_HOST=0.0.0.0
+# (behind an HTTPS reverse proxy / the RAG server's own TLS) — no code change.
+ADMIN_BIND_HOST = os.environ.get("ADMIN_BIND_HOST", "127.0.0.1")
+ADMIN_BIND_PORT = int(os.environ.get("ADMIN_BIND_PORT", "7000"))
+
+UPLOAD_FOLDER = "uploads"
+MAX_UPLOAD_MB = 100
+MAX_BATCH_FILES = 20
+
+# ── RAG credentials (Eko's "RAG server") ────────────────────────────────────
+# Fill these in .env (not here) — see .env / .env.example. Not wired into any
+# code path yet; reserved for the Eko RAG-server integration.
+RAG_SERVER_HOST_IP = os.environ.get("rag_server_host_ip", "")
+RAG_SERVER_PORT = os.environ.get("rag_server_port", "")
+RAG_SERVER_PASS = os.environ.get("rag_server_pass", "")

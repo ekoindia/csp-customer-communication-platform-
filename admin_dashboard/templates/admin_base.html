@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}Eko Admin Portal{% endblock %}</title>
+<style>
+  :root{--bg:#0f1622;--panel:#17202e;--ink:#e8eef6;--soft:#9fb0c3;--line:#26313f;
+        --accent:#f5a623;--ok:#2ecc71;--bad:#e0746e;--muted:#6b7c91;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+       font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,Arial,sans-serif}
+  header{background:var(--panel);border-bottom:1px solid var(--line);
+         padding:12px 20px;display:flex;align-items:center;gap:18px;flex-wrap:wrap}
+  header .brand{font-weight:800;letter-spacing:-.01em}
+  header .brand span{color:var(--accent)}
+  nav a{color:var(--soft);text-decoration:none;font-size:14px;margin-right:14px}
+  nav a.active,nav a:hover{color:var(--ink)}
+  header .right{margin-left:auto;font-size:13px;color:var(--soft)}
+  header .right a{color:var(--soft)}
+  .wrap{max-width:1100px;margin:0 auto;padding:22px 20px 60px}
+  h1{font-size:20px;margin:0 0 4px}
+  .sub{color:var(--soft);font-size:13px;margin:0 0 18px}
+  .cards{display:flex;gap:12px;flex-wrap:wrap;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;
+        padding:14px 18px;min-width:130px}
+  .card .v{font-size:26px;font-weight:750}
+  .card .l{color:var(--soft);font-size:12px;text-transform:uppercase;letter-spacing:.06em}
+  table{width:100%;border-collapse:collapse;background:var(--panel);
+        border:1px solid var(--line);border-radius:12px;overflow:hidden;font-size:14px}
+  th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line)}
+  th{color:var(--soft);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  tr:last-child td{border-bottom:0}
+  a.row{color:var(--ink);text-decoration:none}
+  a.row:hover{color:var(--accent)}
+  .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .pill.on{background:rgba(46,204,113,.15);color:var(--ok)}
+  .pill.off{background:rgba(107,124,145,.2);color:var(--muted)}
+  .pill.bad{background:rgba(224,116,110,.15);color:var(--bad)}
+  .pill.ok{background:rgba(46,204,113,.15);color:var(--ok)}
+  .note{color:var(--muted);font-size:12px;margin-top:14px}
+  .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:10px 0 6px}
+  .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
+  .stat .v{font-size:20px;font-weight:750}
+  .stat .l{color:var(--soft);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+  .stat.wa{border-left:3px solid #25d366}.stat.sms{border-left:3px solid #4a90d9}
+  .stat.visit{border-left:3px solid var(--accent)}.stat.bad2{border-left:3px solid var(--bad)}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-bottom:16px}
+  .panel h2{font-size:14px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em;color:var(--soft)}
+  .bar{height:8px;border-radius:999px;background:#0f1723;overflow:hidden;margin:5px 0}
+  .bar>span{display:block;height:100%;background:var(--accent)}
+  .bandrow{display:flex;align-items:center;gap:10px;font-size:13px;margin:6px 0}
+  .bandrow .nm{width:90px;color:var(--soft)}.bandrow .track{flex:1}
+  .bandrow .n{width:78px;text-align:right;font-variant-numeric:tabular-nums;color:var(--soft)}
+  .kv{display:grid;grid-template-columns:auto 1fr;gap:4px 16px;font-size:13px}
+  .kv .k{color:var(--soft)}
+  .login{max-width:340px;margin:8vh auto;background:var(--panel);border:1px solid var(--line);
+         border-radius:14px;padding:26px}
+  .login h1{text-align:center}
+  input{width:100%;padding:9px 11px;margin:6px 0 12px;background:#0f1723;border:1px solid var(--line);
+        border-radius:8px;color:var(--ink)}
+  button{width:100%;padding:10px;background:var(--accent);color:#1a1200;border:0;border-radius:8px;
+         font-weight:700;cursor:pointer}
+  .flash{background:rgba(224,116,110,.15);color:var(--bad);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:13px}
+</style>
+</head>
+<body>
+{% if session.get('admin_in') %}
+<header>
+  <div class="brand">Eko <span>Admin Portal</span></div>
+  <nav>
+    <a href="{{ url_for('admin_ui.fleet') }}">Fleet</a>
+    <a href="{{ url_for('admin_ui.campaigns') }}">Campaigns</a>
+    <a href="{{ url_for('admin_ui.earnings') }}">Earnings</a>
+    <a href="{{ url_for('admin_ui.api_keys') }}">API Keys</a>
+    <a href="{{ url_for('admin_ui.setup_files') }}">New CSP Setup</a>
+    <a href="{{ url_for('admin_ui.updates') }}">Updates</a>
+    <a href="{{ url_for('admin_ui.whatsapp_health') }}">WhatsApp Health</a>
+  </nav>
+  <div class="right">{{ session.get('admin_login') }} &middot;
+    <a href="{{ url_for('admin_ui.logout') }}">Logout</a></div>
+</header>
+{% endif %}
+<div class="wrap">
+  {% with msgs = get_flashed_messages() %}
+    {% if msgs %}<div class="flash">{{ msgs[0] }}</div>{% endif %}
+  {% endwith %}
+  {% block body %}{% endblock %}
+</div>
+</body>
+</html>

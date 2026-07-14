@@ -1,0 +1,35 @@
+{% extends "admin_base.html" %}
+{% block title %}Fleet - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>CSP Fleet</h1>
+<p class="sub">Live status of all CSP installs. Online = reported within the last {{ window }} minutes.</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ total }}</div><div class="l">Total CSPs</div></div>
+  <div class="card"><div class="v" style="color:var(--ok)">{{ online }}</div><div class="l">Online</div></div>
+  <div class="card"><div class="v" style="color:var(--muted)">{{ offline }}</div><div class="l">Offline</div></div>
+</div>
+
+<table>
+  <thead><tr><th>Status</th><th>CSP</th><th>ID</th><th>Version</th><th>WhatsApp</th><th>Last seen (UTC)</th></tr></thead>
+  <tbody>
+  {% for c in csps %}
+    <tr>
+      <td>{% if c.online %}<span class="pill on">online</span>{% else %}<span class="pill off">offline</span>{% endif %}</td>
+      <td><a class="row" href="{{ url_for('admin_ui.csp_detail', csp_id=c.csp_id) }}">{{ c.name or '-' }}</a></td>
+      <td>{{ c.csp_id }}</td>
+      <td>{{ c.version or '-' }}</td>
+      <td>
+        {% if c.whatsapp_banned %}<span class="pill bad">banned</span>
+        {% elif c.whatsapp_connected %}<span class="pill ok">connected</span>
+        {% else %}<span class="pill off">not set</span>{% endif %}
+      </td>
+      <td>{{ c.last_seen or '-' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="6" style="color:var(--muted)">No CSP has reported yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">No customer data is ever received or stored here - only fleet status, versions, aggregate progress, and audit event types.</p>
+{% endblock %}

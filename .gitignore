@@ -1,0 +1,69 @@
+# ============================================================
+#  Public repo ignore list (repo root = this code/ folder).
+#  Structure published: admin_dashboard/, csp_dashboard/, documentation/,
+#  ocr_training/ + README/CLAUDE. Everything below NEVER gets published:
+#  customer PII, secrets/keys, databases, and internal-only files.
+#  Patterns use **/ so they match at ANY depth (nested folders).
+# ============================================================
+
+# ---- Python / envs ----
+**/__pycache__/
+*.py[cod]
+**/.venv/
+.venv/
+venv/
+env/
+
+# ---- Secrets / keys — NEVER commit ----
+**/.env
+**/*.key
+config_local.py
+
+# ---- Databases (incl. admin.db = API keys, csp_platform.db = case data) ----
+**/*.db
+**/*.db-wal
+**/*.db-shm
+
+# ---- Customer PII — DPDP: must never leave the CSP PC / be published ----
+# Real scanned bank documents used for OCR dev (real names/accounts/mobiles).
+csp_dashboard/data/
+**/data/*.pdf
+**/data/*.tiff
+# OCR training data = REAL customer account/mobile digit crops + labels.
+ocr_training/real_cells/
+ocr_training/checkpoints/
+ocr_training/label.html
+ocr_training/*_montage.png
+ocr_training/mont_*.png
+
+# ---- Build artifacts / machine-specific ----
+**/CSP_Platform.zip
+CSP_Setup_DEMO.bat
+**/CSP_Setup_*.bat
+**/update/
+**/_icon_preview.png
+**/*.log
+**/DxDiag.txt
+
+# ---- WhatsApp session (an authenticated login) + node deps ----
+**/.wa_session/
+**/node_modules/
+
+# ---- Admin portal runtime state (server-side, regenerated) ----
+admin_dashboard/releases/
+
+# ---- Curation: internal-only docs (NOT needed to understand the project) ----
+# Server IP / operational runbook, internal process docs, hardware dumps, TODOs.
+documentation/GO_LIVE_RUNBOOK.md
+documentation/*.docx
+documentation/PENDING.md
+
+# ---- OS / editor / test caches ----
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+**/.pytest_cache/
+
+# Claude Code local dev config (not project code)
+.claude/

@@ -1,0 +1,59 @@
+<title>Connect to Eko Admin Portal - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<div class="container d-flex justify-content-center align-items-center" style="min-height:100vh">
+  <div class="card" style="width:460px">
+    <div class="card-body p-4">
+      <div class="text-center mb-3">
+        <div class="ops-kicker">One-time setup</div>
+        <h4 class="card-title mb-1">Connect to Eko Admin Portal</h4>
+        <p class="text-muted small mb-0">
+          Enter the CSP ID and API key issued by Eko so this install can report
+          status (no customer data — see the note below). Shown only once;
+          you can change it later from Settings, or skip for now and this
+          dashboard keeps working fully on its own.
+        </p>
+      </div>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-info py-2">{{ messages[0] }}</div>
+        {% endif %}
+      {% endwith %}
+      <form method="POST" action="{{ url_for('dashboard.admin_connect') }}">
+        <input type="hidden" name="action" value="connect">
+        <div class="mb-3">
+          <label class="form-label">CSP ID</label>
+          <input type="text" name="csp_id" class="form-control"
+                 value="{{ config.ADMIN_CSP_ID }}" placeholder="e.g. CSP001" autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label">API key</label>
+          <input type="text" name="api_key" class="form-control"
+                 placeholder="issued by Eko for this CSP">
+        </div>
+        <!-- The Eko admin server address is built into this install (the same for
+             every CSP) and is deliberately NOT shown or editable here — the CSP
+             connects using only their CSP ID + API key. If it ever genuinely
+             needs changing, that is done by Eko, not from this screen. -->
+        <p class="text-muted small mb-3">
+          You are connecting to the Eko Admin Portal — no server address needed.
+        </p>
+        <button type="submit" class="btn btn-primary w-100 mb-2">Save &amp; Connect</button>
+      </form>
+      <form method="POST" action="{{ url_for('dashboard.admin_connect') }}">
+        <input type="hidden" name="action" value="skip">
+        <button type="submit" class="btn btn-outline-secondary w-100 btn-sm">Skip for now</button>
+      </form>
+      <p class="text-muted small mt-3 mb-0">
+        Only operational status crosses to Eko — install version, WhatsApp
+        connected/banned, aggregate message &amp; visit counts, this machine's
+        hardware profile. Never a customer name, mobile, account number, or
+        message text.
+      </p>
+    </div>
+  </div>
+</div>
+</body>

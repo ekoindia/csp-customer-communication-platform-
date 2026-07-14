@@ -1,0 +1,55 @@
+{% extends "admin_base.html" %}
+{% block title %}New CSP Setup - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>New CSP setup</h1>
+<p class="sub">Upload the install package once (build it with MAKE_ZIP.ps1). This
+  page then hosts it at a public download link and can hand out a ready
+  CSP_Setup.bat for any new CSP — nothing to edit by hand per install.</p>
+
+<div class="panel">
+  <h2>Current install package</h2>
+  {% if latest %}
+  <div class="kv">
+    <div class="k">File</div><div>{{ latest.filename }}{% if latest.version %} &middot; v{{ latest.version }}{% endif %}</div>
+    <div class="k">Size</div><div>{{ (latest.size_bytes / 1024)|round(1) }} KB</div>
+    <div class="k">SHA-256</div><div style="font-size:12px;word-break:break-all">{{ latest.sha256 }}</div>
+    <div class="k">Uploaded</div><div>{{ latest.uploaded_at }} UTC</div>
+  </div>
+  <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
+    <a href="{{ download_url }}" style="width:auto;padding:9px 16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none">Download CSP_Platform.zip</a>
+    <a href="{{ url_for('admin_ui.download_csp_setup_bat') }}" style="width:auto;padding:9px 16px;background:var(--accent);border-radius:8px;color:#1a1200;text-decoration:none;font-weight:700">Download ready CSP_Setup.bat</a>
+  </div>
+  <p class="note">Send the CSP_Setup.bat above to any new CSP — it already points at this package. Double-click installs everything into C:\CSP_Platform.</p>
+  {% else %}
+  <p style="color:var(--muted);margin:0">No install package uploaded yet.</p>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Upload a new install package</h2>
+  <form method="post" enctype="multipart/form-data" style="max-width:520px">
+    <label class="l" style="color:var(--soft)">Version (e.g. 1.0.0)</label>
+    <input name="version" placeholder="1.0.0">
+    <label class="l" style="color:var(--soft)">CSP_Platform.zip</label>
+    <input type="file" name="package" accept=".zip" required
+           style="width:100%;padding:9px 11px;margin:6px 0 12px;background:#0f1723;border:1px solid var(--line);border-radius:8px;color:var(--ink)">
+    <button type="submit">Upload</button>
+  </form>
+  <p class="note">sha256 is computed automatically — nothing to paste by hand.</p>
+</div>
+
+{% if history %}
+<div class="panel">
+  <h2>Upload history</h2>
+  <table>
+    <thead><tr><th>File</th><th>Version</th><th>Size</th><th>Uploaded</th></tr></thead>
+    <tbody>
+    {% for r in history %}
+      <tr><td>{{ r.filename }}</td><td>{{ r.version or '-' }}</td>
+        <td>{{ (r.size_bytes / 1024)|round(1) }} KB</td><td>{{ r.uploaded_at }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

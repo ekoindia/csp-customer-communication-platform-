@@ -1,0 +1,86 @@
+{% extends "admin_base.html" %}
+{% block title %}{{ c.name or c.csp_id }} - Eko Admin Portal{% endblock %}
+{% block body %}
+<p class="sub"><a href="{{ url_for('admin_ui.fleet') }}" style="color:var(--soft)">&larr; Fleet</a></p>
+<h1>{{ c.name or c.csp_id }}</h1>
+<p class="sub">CSP ID {{ c.csp_id }} &middot; version {{ c.version or '-' }} &middot;
+  {% if c.online %}<span class="pill on">online</span>{% else %}<span class="pill off">offline</span>{% endif %}
+  &middot; WhatsApp:
+  {% if c.whatsapp_banned %}<span class="pill bad">banned</span>
+  {% elif c.whatsapp_connected %}<span class="pill ok">connected</span>
+  {% else %}<span class="pill off">not set</span>{% endif %}
+  &middot; last seen {{ c.last_seen or '-' }} UTC</p>
+
+<div class="panel">
+  <h2>CSP machine (hardware)</h2>
+  <div class="kv">
+    <div class="k">RAM</div><div>{{ c.hw_ram_gb or '-' }} GB total &middot; {{ c.hw_available_gb or '-' }} GB free at last report</div>
+    <div class="k">CPU</div><div>{{ c.hw_cpu_threads or '-' }} threads</div>
+    <div class="k">GPU</div><div>{% if c.hw_gpu %}NVIDIA present{% else %}none (CPU only){% endif %}</div>
+    <div class="k">OS</div><div>{{ c.os_name or '-' }}</div>
+    <div class="k">OCR engine</div><div>{{ c.ocr_engine or '-' }}{% if c.ocr_engine == 'tesseract' %} (low-RAM profile, no PyTorch){% endif %}</div>
+    <div class="k">Install ID</div><div>{{ c.install_id or c.csp_id }}</div>
+  </div>
+</div>
+
+{% for p in progress %}
+<div class="panel">
+  <h2>{{ p.campaign_id or 'campaign' }} &middot; {{ p.month or '-' }}</h2>
+  <div class="grid">
+    <div class="stat"><div class="v">{{ p.total }}</div><div class="l">Total cases</div></div>
+    <div class="stat"><div class="v">{{ p.reached }}</div><div class="l">Reached</div></div>
+    <div class="stat bad2"><div class="v">{{ p.failed }}</div><div class="l">Failed</div></div>
+    <div class="stat"><div class="v">{{ '%.0f'|format(p.pct) }}%</div><div class="l">Reach rate</div></div>
+  </div>
+
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Message tracking</p>
+  <div class="grid">
+    <div class="stat wa"><div class="v">{{ p.wa_sent }}</div><div class="l">WA sent</div></div>
+    <div class="stat wa"><div class="v">{{ p.wa_delivered }}</div><div class="l">WA delivered</div></div>
+    <div class="stat wa"><div class="v">{{ p.wa_read }}</div><div class="l">WA read</div></div>
+    <div class="stat bad2"><div class="v">{{ p.wa_failed }}</div><div class="l">WA failed</div></div>
+    <div class="stat sms"><div class="v">{{ p.sms_sent }}</div><div class="l">SMS sent</div></div>
+    <div class="stat sms"><div class="v">{{ p.sms_delivered }}</div><div class="l">SMS delivered</div></div>
+    <div class="stat bad2"><div class="v">{{ p.sms_failed }}</div><div class="l">SMS failed</div></div>
+    <div class="stat bad2"><div class="v">{{ p.escalated }}</div><div class="l">Escalated</div></div>
+  </div>
+
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Physical-visit tracking</p>
+  <div class="grid">
+    <div class="stat visit"><div class="v">{{ p.visit_pending }}</div><div class="l">Pending visit</div></div>
+    <div class="stat visit"><div class="v">{{ p.visited }}</div><div class="l">Visited</div></div>
+    <div class="stat visit"><div class="v">{{ p.in_progress }}</div><div class="l">In progress</div></div>
+    <div class="stat visit"><div class="v">{{ p.completed }}</div><div class="l">Completed</div></div>
+    <div class="stat visit"><div class="v">{{ p.closed }}</div><div class="l">Closed</div></div>
+  </div>
+
+  {% if p.bands %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Balance-band reach (reached / total)</p>
+  {% for b in p.bands %}
+    <div class="bandrow">
+      <div class="nm">{{ b.band }}</div>
+      <div class="track"><div class="bar"><span style="width:{{ (100 * b.reached / b.total) if b.total else 0 }}%"></span></div></div>
+      <div class="n">{{ b.reached }} / {{ b.total }}</div>
+    </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% else %}
+<div class="panel"><p style="color:var(--muted);margin:0">No campaign progress reported yet.</p></div>
+{% endfor %}
+
+<div class="panel">
+  <h2>Recent activity (event types only)</h2>
+  <table>
+    <thead><tr><th>Event</th><th>Time (UTC)</th></tr></thead>
+    <tbody>
+    {% for a in audit %}
+      <tr><td>{{ a.type }}</td><td>{{ a.ts }}</td></tr>
+    {% else %}
+      <tr><td colspan="2" style="color:var(--muted)">No events yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">Operational events (login, upload, send, etc.) with no customer reference.</p>
+</div>
+{% endblock %}

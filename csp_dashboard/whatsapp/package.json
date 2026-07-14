@@ -1,0 +1,15 @@
+{
+  "name": "csp-wa-server",
+  "version": "1.0.0",
+  "description": "Baileys-based WhatsApp HTTP server for CSP platform (no Chromium — direct WebSocket protocol)",
+  "main": "wa_server.js",
+  "scripts": {
+    "start": "node wa_server.js"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "express": "^4.19.2",
+    "qrcode": "^1.5.4"
+  }
+}

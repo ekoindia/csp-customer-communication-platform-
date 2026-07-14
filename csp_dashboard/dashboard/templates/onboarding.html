@@ -1,0 +1,74 @@
+<title>Setup - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<div class="container d-flex justify-content-center align-items-center" style="min-height:100vh;padding:24px 0">
+  <div class="card" style="width:460px">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-end mb-2">
+        <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      </div>
+      <div class="text-center mb-3">
+        <div class="ops-kicker" data-i18n="onboard.kicker">First-time setup</div>
+        <h4 class="card-title mb-1" data-i18n="onboard.title">Set up your dashboard</h4>
+        <div class="text-muted small" data-i18n="onboard.subtitle">
+          Choose your own login and enter your branch details. You will use these to sign in.
+        </div>
+      </div>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-danger py-2">{{ messages[0] }}</div>
+        {% endif %}
+      {% endwith %}
+      <form method="POST" action="/onboarding">
+
+        <div class="ops-kicker mt-1 mb-2" data-i18n="onboard.login_section">Your login</div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="onboard.login_id">Login ID (your CSP code)</label>
+          <input type="text" name="login_id" class="form-control" required autofocus
+                 value="{{ form.login_id }}">
+        </div>
+        <div class="row">
+          <div class="col-6 mb-3">
+            <label class="form-label" data-i18n="onboard.password">Password</label>
+            <input type="password" name="password" class="form-control" required minlength="6">
+          </div>
+          <div class="col-6 mb-3">
+            <label class="form-label" data-i18n="onboard.confirm">Confirm password</label>
+            <input type="password" name="confirm_password" class="form-control" required minlength="6">
+          </div>
+        </div>
+
+        <div class="ops-kicker mt-2 mb-2" data-i18n="onboard.branch_section">Your branch details</div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="onboard.csp_name">CSP / branch name (shown on messages)</label>
+          <input type="text" name="csp_name" class="form-control" required
+                 value="{{ form.csp_name }}" placeholder="e.g. Dudahi CSP">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="onboard.branch_code">SBI branch code</label>
+          <input type="text" name="branch_code" class="form-control"
+                 value="{{ form.branch_code }}" placeholder="e.g. 1332">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="onboard.address">Branch address</label>
+          <input type="text" name="csp_address" class="form-control" required
+                 value="{{ form.csp_address }}" placeholder="e.g. Dudahi, Tamkuhi Raj, Kushinagar">
+        </div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="onboard.phone">CSP phone</label>
+          <input type="text" name="csp_phone" class="form-control" required
+                 value="{{ form.csp_phone }}" placeholder="e.g. 98XXXXXXXX">
+        </div>
+
+        <button type="submit" class="btn btn-primary w-100" data-i18n="onboard.submit">
+          Save & continue to login
+        </button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="/static/js/i18n.js"></script>
+</body>

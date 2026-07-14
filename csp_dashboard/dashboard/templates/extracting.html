@@ -1,0 +1,90 @@
+<title>Reading document — CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <a href="/welcome" class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">reading your document</span>
+      </span>
+    </a>
+  </div>
+</nav>
+
+<div class="container" style="max-width:640px;margin-top:8vh">
+  <div class="card">
+    <div class="card-body text-center p-4">
+      <div class="spinner-border text-primary mb-3" role="status" id="spin"></div>
+      <h5 class="mb-2" id="title">Reading the document…</h5>
+      <p class="text-muted small mb-3" id="msg">Starting…</p>
+
+      <div class="progress" style="height:18px">
+        <div id="bar" class="progress-bar progress-bar-striped progress-bar-animated"
+             role="progressbar" style="width:0%">0%</div>
+      </div>
+      <p class="text-muted small mt-3 mb-0" id="hint">
+        Scanned documents are read one page at a time. This can take a few
+        minutes on a small PC — you can leave this window open; it will open the
+        review screen automatically when it is done.
+      </p>
+
+      <div id="failbox" class="alert alert-danger mt-3 text-start" style="display:none">
+        <div class="fw-semibold">Could not read the document</div>
+        <div class="small" id="failmsg"></div>
+        <a class="btn btn-outline-secondary btn-sm mt-2"
+           href="/campaign/{{ campaign_id }}/documents">Back to Documents</a>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const JOB = "{{ job_id }}";
+const CAMPAIGN = "{{ campaign_id }}";
+let stopped = false;
+
+function poll() {
+  if (stopped) return;
+  fetch(`/extract/status/${JOB}`)
+    .then(r => r.json())
+    .then(d => {
+      if (d.status === "running" || d.status === "unknown") {
+        const total = d.total || 0, done = d.done || 0;
+        const bar = document.getElementById("bar");
+        if (total > 0) {
+          // REAL progress: reflects actual rows/pages read (no fake %).
+          const pct = Math.round(100 * done / total);
+          bar.style.width = pct + "%";
+          bar.textContent = pct + "%";
+        } else {
+          // Truly no measurement yet (first moment) — honest "starting", 0%.
+          bar.style.width = "0%";
+          bar.textContent = "";
+        }
+        document.getElementById("msg").textContent = d.message || "Working…";
+        setTimeout(poll, 800);
+      } else if (d.status === "done") {
+        stopped = true;
+        const bar = document.getElementById("bar");
+        bar.style.width = "100%"; bar.textContent = "100%";
+        bar.classList.remove("progress-bar-animated");
+        document.getElementById("msg").textContent = "Done — opening review…";
+        window.location = `/campaign/${CAMPAIGN}/review/${d.draft_id}`;
+      } else if (d.status === "error") {
+        stopped = true;
+        document.getElementById("spin").style.display = "none";
+        document.getElementById("title").textContent = "Something went wrong";
+        document.getElementById("hint").style.display = "none";
+        document.getElementById("failmsg").textContent = d.error || "extraction failed";
+        document.getElementById("failbox").style.display = "block";
+      }
+    })
+    .catch(() => setTimeout(poll, 2500));  // transient network hiccup — keep trying
+}
+poll();
+</script>
+</body>

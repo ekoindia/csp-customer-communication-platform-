@@ -1,0 +1,24 @@
+{% extends "admin_base.html" %}
+{% block title %}Earnings - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>Earnings &amp; commission</h1>
+<p class="sub">Money view by campaign and month, per CSP. (Figures are placeholders until the commission formula is finalised.)</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ '%.2f'|format(total_earnings) }}</div><div class="l">Total earnings</div></div>
+</div>
+
+<table>
+  <thead><tr><th>Month</th><th>CSP</th><th>Campaign ID</th><th>Reached</th><th>Closed</th><th>%</th><th>Earnings</th></tr></thead>
+  <tbody>
+  {% for r in rows %}
+    <tr><td>{{ r.month or '-' }}</td><td>{{ r.name or r.csp_id }}</td>
+      <td>{{ r.campaign_id or '-' }}</td><td>{{ r.reached }}</td><td>{{ r.closed }}</td>
+      <td>{{ '%.0f'|format(r.pct) }}%</td><td>{{ '%.2f'|format(r.earnings) }}</td></tr>
+  {% else %}
+    <tr><td colspan="7" style="color:var(--muted)">No earnings reported yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+<p class="note">Earnings are reported as a single figure per campaign/month, tied to an opaque campaign ID - no customer or account data.</p>
+{% endblock %}

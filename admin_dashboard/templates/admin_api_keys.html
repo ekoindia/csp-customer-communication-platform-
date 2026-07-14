@@ -1,0 +1,83 @@
+{% extends "admin_base.html" %}
+{% block title %}API Keys - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>Per-CSP API keys</h1>
+<p class="sub">Every CSP install needs a unique key to report to this portal
+  (POST /report, GET /sync both reject an unknown or inactive key). Issue one
+  here before sending a new CSP its install package, or when Eko hands out the
+  install (INSTALL.bat) prompt / the dashboard's "Connect to Eko Admin Portal"
+  screen — give them this CSP ID + key.</p>
+
+{% if new_key %}
+<div class="panel" style="border-color:var(--accent)">
+  <h2 style="color:var(--accent)">New key issued — copy it now</h2>
+  <div class="kv">
+    <div class="k">CSP ID</div><div style="font-weight:700">{{ new_key.csp_id }}</div>
+    <div class="k">API key</div>
+    <div>
+      <code id="newKeyValue" style="font-size:13px;word-break:break-all;background:#0f1723;padding:6px 10px;border-radius:6px;display:inline-block">{{ new_key.api_key }}</code>
+      <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('newKeyValue').textContent)"
+              style="width:auto;padding:5px 12px;margin-left:8px;font-size:12px">Copy</button>
+    </div>
+  </div>
+  <p class="note">This is the only time the full key is shown. It will only
+    display as the last 4 characters below from now on.</p>
+</div>
+{% endif %}
+
+<div class="panel">
+  <h2>Issue a new key / rotate an existing one</h2>
+  <form method="post" style="max-width:520px">
+    <input type="hidden" name="action" value="issue">
+    <label class="l" style="color:var(--soft)">CSP ID</label>
+    <input name="csp_id" placeholder="e.g. CSP002" required>
+    <label class="l" style="color:var(--soft)">Display name (optional)</label>
+    <input name="name" placeholder="e.g. Sonia Vihar SBI CSP">
+    <button type="submit">Generate key</button>
+  </form>
+  <p class="note">Using a CSP ID that already has a key REPLACES it (rotation)
+    — the old key stops working immediately and the CSP install must be given
+    the new one.</p>
+</div>
+
+<div class="panel">
+  <h2>Issued keys</h2>
+  <p class="note" style="margin:0 0 12px">"Setup file" downloads a single, fully
+    self-contained <code>CSP_Setup.bat</code> for that CSP — install package +
+    this key already baked in. That is the ONLY file you send that CSP; no
+    separate key message, no prompts for them to answer.</p>
+  <table>
+    <thead><tr><th>CSP ID</th><th>Name</th><th>Key (last 4)</th><th>Status</th><th>Issued</th><th colspan="2"></th></tr></thead>
+    <tbody>
+    {% for k in keys %}
+      <tr>
+        <td>{{ k.csp_id }}</td>
+        <td>{{ k.name or '-' }}</td>
+        <td style="font-variant-numeric:tabular-nums">••••{{ k.api_key[-4:] }}</td>
+        <td>{% if k.active %}<span class="pill ok">active</span>{% else %}<span class="pill bad">revoked</span>{% endif %}</td>
+        <td>{{ k.created_at }}</td>
+        <td>
+          {% if k.active %}
+          <a href="{{ url_for('admin_ui.download_csp_setup_bat', csp_id=k.csp_id) }}"
+             style="display:inline-block;width:auto;padding:4px 12px;font-size:12px;background:var(--accent);border-radius:6px;color:#1a1200;text-decoration:none;font-weight:700">
+            Setup file
+          </a>
+          {% endif %}
+        </td>
+        <td>
+          <form method="post" style="display:inline">
+            <input type="hidden" name="action" value="toggle">
+            <input type="hidden" name="csp_id" value="{{ k.csp_id }}">
+            <button type="submit" style="width:auto;padding:4px 12px;font-size:12px;background:var(--panel);border:1px solid var(--line);color:var(--ink)">
+              {% if k.active %}Revoke{% else %}Reactivate{% endif %}
+            </button>
+          </form>
+        </td>
+      </tr>
+    {% else %}
+      <tr><td colspan="7" style="color:var(--muted)">No keys issued yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

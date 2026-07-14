@@ -1,0 +1,271 @@
+<title>Case Detail — CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <a href="/welcome" class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">case detail</span>
+      </span>
+    </a>
+    <div class="ops-rail">
+      <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      {% set qs = '?from=sheet' if from_sheet else '' %}
+      {% if prev_id %}
+      <a id="navPrev" href="/campaign/{{ campaign_id }}/case/{{ prev_id }}{{ qs }}"
+         class="btn btn-outline-secondary btn-sm" title="Previous case (← / ↑)">‹ Prev</a>
+      {% else %}
+      <button class="btn btn-outline-secondary btn-sm" disabled>‹ Prev</button>
+      {% endif %}
+      {% if total_in_batch %}
+      <span class="text-muted small">Case {{ position }} of {{ total_in_batch }}</span>
+      {% endif %}
+      {% if next_id %}
+      <a id="navNext" href="/campaign/{{ campaign_id }}/case/{{ next_id }}{{ qs }}"
+         class="btn btn-outline-secondary btn-sm" title="Next case (→ / ↓)">Next ›</a>
+      {% else %}
+      <button class="btn btn-outline-secondary btn-sm" disabled>Next ›</button>
+      {% endif %}
+      {% if from_sheet %}
+      <button class="btn btn-outline-success btn-sm" onclick="approveRest()"
+              title="Approve every remaining reachable, non-flagged case automatically">Approve All Remaining</button>
+      <a href="/campaign/{{ campaign_id }}/approve_sheet/{{ case.batch_id }}" class="btn btn-outline-primary btn-sm">Back to Review Sheet</a>
+      {% endif %}
+      <a href="/campaign/{{ campaign_id }}?batch_id={{ case.batch_id }}" class="btn btn-outline-secondary btn-sm">Back to Cases</a>
+      <a href="/logout" class="btn btn-outline-secondary btn-sm">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<main class="container mt-4" style="max-width:960px" data-reveal-group="case">
+
+  <div class="d-flex justify-content-between align-items-start mb-3">
+    <div>
+      <h4 class="mb-1">{% if case.name %}<span class="masked-name">{{ case.name }}</span>{% else %}<span class="text-muted">Customer record purged</span>{% endif %}</h4>
+      <span class="text-muted small">Case ID: {{ case.case_id }}</span>
+      {% if case.pii_purged_at %}<div class="small text-muted">Customer PII purged on case closure ({{ case.pii_purged_at }})</div>{% endif %}
+    </div>
+    <div class="d-flex gap-2">
+      <span class="badge
+        {% if case.tone == 'urgent' %}bg-danger
+        {% else %}bg-secondary{% endif %} fs-6">
+        {{ case.band_label }}
+      </span>
+    </div>
+  </div>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="alert alert-info alert-dismissible">
+        {{ messages[0] }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <div id="actionAlert"></div>
+
+  <div class="row g-3">
+
+    <!-- Customer info -->
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
+          <span data-i18n="cd.custinfo">Customer Information</span>
+          <span class="text-muted small" data-i18n="cd.locked">locked — corrections are made on the review screen before confirming</span>
+        </div>
+        <div class="card-body">
+          <table class="table table-sm mb-0">
+            <tbody>
+              <tr><td class="text-muted" style="width:40%" data-i18n="cd.account">Account number</td><td>{{ case.account_number or "—" }}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.mobile">Mobile</td><td class="fw-semibold">{% if case.mobile %}<span class="masked-mobile">{{ case.mobile }}</span>{% elif case.pii_purged_at %}— record purged —{% else %}— not reachable —{% endif %}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.father">Father's name</td><td>{{ case.father_name or "—" }}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.band">Balance band</td><td>{{ case.balance_band }} ({{ case.band_label }})</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.taluka">Taluka</td><td>{{ case.taluka or "—" }}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.village">Village</td><td>{{ case.village or "—" }}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.address">Address</td><td>{{ case.address or "—" }}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.batch">Batch</td><td class="small">{{ case.batch_id }}</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- Business tracking -->
+    <div class="col-md-6">
+      <div class="card h-100">
+        <div class="card-header fw-semibold" data-i18n="cd.biztrack">Business Tracking</div>
+        <table class="table table-sm mb-0">
+          <tbody>
+            <tr><td class="text-muted" style="width:40%" data-i18n="cd.status">Status</td>
+              <td><span class="badge bg-info">{{ tracking.status if tracking else 'pending' }}</span></td></tr>
+            <tr><td class="text-muted" data-i18n="cd.escalated">Escalated</td>
+              <td>{{ "Yes — manual visit needed" if tracking and tracking.is_escalated else "No" }}</td></tr>
+            {% set _msent = tracking.message_sent_at if tracking else None %}
+            {% set _vis = tracking.visited_at if tracking else None %}
+            {% set _clo = tracking.closed_at if tracking else None %}
+            <tr><td class="text-muted" data-i18n="cd.msgsent">Message sent</td>
+              <td class="small">{{ _msent | ist_date }}{% if _msent %} · <span class="text-muted">{{ _msent | ist_time }}</span>{% endif %}</td></tr>
+            <tr><td class="text-muted" data-i18n="cd.visited">Visited</td>
+              <td class="small">{{ _vis | ist_date }}{% if _vis %} · <span class="text-muted">{{ _vis | ist_time }}</span>{% endif %}</td></tr>
+            <tr><td class="text-muted" data-i18n="cd.closed">Closed</td>
+              <td class="small">{{ _clo | ist_date }}{% if _clo %} · <span class="text-muted">{{ _clo | ist_time }}</span>{% endif %}</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Message being sent -->
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header fw-semibold" data-i18n="cd.message">Message</div>
+        <div class="card-body">
+          {% if message %}
+            <div class="mb-3">
+              <div class="small text-muted mb-1">WhatsApp</div>
+              <pre class="border rounded p-2 bg-light small mb-0" style="white-space:pre-wrap">{{ message.wa_message }}</pre>
+            </div>
+            <div>
+              <div class="small text-muted mb-1">SMS fallback</div>
+              <pre class="border rounded p-2 bg-light small mb-0" style="white-space:pre-wrap">{{ message.sms_message }}</pre>
+            </div>
+          {% else %}
+            <p class="text-muted mb-0">No message generated yet.</p>
+          {% endif %}
+          <div class="text-muted small mt-3 border-top pt-2">
+            This message is fixed and cannot be edited here. To change the message
+            template, raise a request through Help &amp; Support and Eko will update it.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Approve action -->
+    {% if can_approve %}
+    <div class="col-12">
+      <div class="card border-primary">
+        <div class="card-body d-flex justify-content-between align-items-center">
+          <div>
+            <div class="fw-semibold" data-i18n="cd.approvetitle">This case has not been queued yet.</div>
+            <div class="text-muted small">Review the message above against the customer's details. If it looks correct, approve it for sending.</div>
+          </div>
+          <button id="approveBtn" class="btn btn-success" onclick="approveThisCase()" data-i18n="cd.approvebtn">Approve for Sending</button>
+        </div>
+      </div>
+    </div>
+    {% endif %}
+
+    <!-- Communication history -->
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header fw-semibold" data-i18n="cd.commhist">Communication History</div>
+        {% if attempts %}
+        <table class="table table-sm mb-0">
+          <thead class="table-light">
+            <tr><th>Channel</th><th>Status</th><th>Date</th><th>Time (IST)</th><th>Last update</th><th>Detail</th></tr>
+          </thead>
+          <tbody>
+            {% for a in attempts %}
+            <tr>
+              <td>{{ a.channel }}</td>
+              <td>
+                <span class="badge
+                  {% if a.status in ('wa_delivered','wa_read','sms_delivered') %}bg-success
+                  {% elif a.status in ('wa_failed','sms_failed','escalated') %}bg-danger
+                  {% else %}bg-secondary{% endif %}">
+                  {{ a.status }}
+                </span>
+              </td>
+              <td class="small">{{ a.sent_at | ist_date }}</td>
+              <td class="small">{{ a.sent_at | ist_time }}</td>
+              <td class="small text-muted">{{ a.updated_at | ist_date }} · {{ a.updated_at | ist_time }}</td>
+              <td class="small text-muted">{{ a.error_detail or "" }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        {% else %}
+          <div class="card-body">
+            <p class="text-muted mb-0">Not queued yet — no send attempts recorded.</p>
+          </div>
+        {% endif %}
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/mask.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+// Arrow keys walk the batch in the same order as the Cases table.
+// Left/Up = previous case, Right/Down = next case. Ignored while typing.
+const FROM_SHEET = {{ 'true' if from_sheet else 'false' }};
+const QS = FROM_SHEET ? "?from=sheet" : "";
+const PREV_URL = {% if prev_id %}"/campaign/{{ campaign_id }}/case/{{ prev_id }}" + QS{% else %}null{% endif %};
+const NEXT_URL = {% if next_id %}"/campaign/{{ campaign_id }}/case/{{ next_id }}" + QS{% else %}null{% endif %};
+const SHEET_URL = "/campaign/{{ campaign_id }}/approve_sheet/{{ case.batch_id }}";
+
+document.addEventListener("keydown", (e) => {
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select" || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+  if ((e.key === "ArrowLeft" || e.key === "ArrowUp") && PREV_URL) {
+    e.preventDefault();
+    window.location = PREV_URL;
+  } else if ((e.key === "ArrowRight" || e.key === "ArrowDown") && NEXT_URL) {
+    e.preventDefault();
+    window.location = NEXT_URL;
+  }
+});
+
+// Customer records are locked after confirmation — there is no edit/save path
+// on this screen (the /api/case/<id>/update endpoint now refuses with 403).
+// Corrections are made on the review screen before "Confirm & Create Cases".
+
+function approveRest() {
+  if (!confirm("Approve ALL remaining reachable, non-flagged cases in this batch automatically? You can then send them from the review sheet.")) return;
+  fetch(`/api/batch/{{ case.batch_id }}/approve_remaining`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit: null }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.approved !== undefined) window.location = SHEET_URL;
+      else alert(d.reason || "Could not approve the remaining cases.");
+    })
+    .catch(() => alert("Could not approve the remaining cases."));
+}
+
+function goAfterApprove() {
+  // In the manual-review flow, jump straight to the next case for fast review;
+  // otherwise just refresh this page.
+  if (FROM_SHEET && NEXT_URL) window.location = NEXT_URL;
+  else if (FROM_SHEET) window.location = SHEET_URL;
+  else location.reload();
+}
+
+function approveThisCase() {
+  const btn = document.getElementById("approveBtn");
+  btn.disabled = true;
+  btn.textContent = "Approving…";
+  fetch(`/api/case/{{ case.case_id }}/approve`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        goAfterApprove();
+      } else {
+        document.getElementById("actionAlert").innerHTML =
+          `<div class="alert alert-danger py-2">${d.reason || "Could not approve this case."}</div>`;
+        btn.disabled = false;
+        btn.textContent = "Approve for Sending";
+      }
+    });
+}
+</script>
+</body>

@@ -1,0 +1,31 @@
+{% extends "admin_base.html" %}
+{% block title %}WhatsApp Health - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>WhatsApp health</h1>
+<p class="sub">Per-CSP WhatsApp connection and ban status, so a banned number is caught early.</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ total }}</div><div class="l">Total CSPs</div></div>
+  <div class="card"><div class="v" style="color:var(--ok)">{{ connected }}</div><div class="l">Connected</div></div>
+  <div class="card"><div class="v" style="color:var(--bad)">{{ banned }}</div><div class="l">Banned</div></div>
+</div>
+
+<table>
+  <thead><tr><th>CSP</th><th>ID</th><th>WhatsApp</th><th>Fleet</th><th>Last seen (UTC)</th></tr></thead>
+  <tbody>
+  {% for c in csps %}
+    <tr>
+      <td><a class="row" href="{{ url_for('admin_ui.csp_detail', csp_id=c.csp_id) }}">{{ c.name or '-' }}</a></td>
+      <td>{{ c.csp_id }}</td>
+      <td>{% if c.whatsapp_banned %}<span class="pill bad">banned</span>
+          {% elif c.whatsapp_connected %}<span class="pill ok">connected</span>
+          {% else %}<span class="pill off">not set</span>{% endif %}</td>
+      <td>{% if c.online %}<span class="pill on">online</span>{% else %}<span class="pill off">offline</span>{% endif %}</td>
+      <td>{{ c.last_seen or '-' }}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="5" style="color:var(--muted)">No CSP has reported yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}

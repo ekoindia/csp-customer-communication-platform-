@@ -1,0 +1,37 @@
+flask==3.0.3
+pydantic==2.7.4
+openpyxl==3.1.2
+pdfplumber==0.11.1
+pillow==10.3.0
+pytesseract==0.3.10
+requests==2.32.3
+pytest==8.2.2
+# Loads local secrets/config from a .env file (never committed — see
+# .env.example) instead of hardcoding them in config.py.
+python-dotenv==1.0.1
+# Field-level encryption at rest for customer PII (core/crypto.py) — a CSP's
+# local SQLite file must not be human-readable if inspected directly (e.g. an
+# RBI on-site visit). Lightweight, no native/OS deps beyond OpenSSL bindings.
+cryptography==43.0.3
+# Hardware detection (RAM/CPU) for core/hardware.py auto OCR mode. Optional —
+# hardware.py falls back to a ctypes RAM probe on Windows if psutil is absent.
+psutil==5.9.8
+# Scanned-document OCR (auto-orientation + table reconstruction)
+pypdfium2==4.30.0
+numpy==2.1.3
+# contrib-headless: single numpy-2-compatible OpenCV build (no GUI deps).
+opencv-contrib-python-headless==4.10.0.84
+python-doctr
+# docTR runs on PyTorch. On the dev machine (RTX 4060) install the CUDA build so
+# OCR uses the GPU and the accurate "parseq" recognition model is practical:
+#   pip install --force-reinstall --no-deps torch==2.11.0 torchvision==0.26.0 \
+#       --index-url https://download.pytorch.org/whl/cu126
+# On the CPU-only deployment CSP PC, the default CPU wheels are fine (pip install
+# torch torchvision) and config.DOCTR_RECO_ARCH can be set to "crnn_vgg16_bn"
+# for speed. Same code auto-detects the device — no code change between machines.
+#
+# PaddleOCR was evaluated as a stronger table OCR but is NOT installed:
+# paddleocr 2.7.x depends on numpy 1.x (via imgaug / np.sctypes) and cannot
+# coexist with the numpy 2.x that docTR + opencv 4.10 require. The engine hooks
+# remain in core/ocr_table.py (OCR_ENGINE="paddle") so it can be enabled later
+# in a dedicated numpy-1 environment, but the supported default is docTR.

@@ -1,0 +1,208 @@
+<title>{{ campaign_name }} - Documents - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+    <a href="/welcome" class="ops-brand">
+      <span>
+        <p class="ops-brand-title">{{ csp_name }}</p>
+        <span class="ops-brand-subtitle">document intake</span>
+      </span>
+    </a>
+    <div class="ops-rail">
+      <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      <a href="/welcome" class="btn btn-outline-secondary btn-sm" data-i18n="nav.campaigns">Campaigns</a>
+      <a href="/logout" class="btn btn-outline-secondary btn-sm" data-i18n="nav.logout">Logout</a>
+    </div>
+  </div>
+</nav>
+
+<main class="ops-shell">
+  <section class="ops-hero">
+    <div class="ops-kicker">intake queue</div>
+    <h1 class="ops-title">{{ campaign_name }}</h1>
+    <p class="ops-subtitle">Upload the bank's customer list — Excel, CSV, PDF, a scanned PDF, or a photo. Everything is read on this computer only.</p>
+  </section>
+
+  <nav aria-label="breadcrumb">
+    <ol class="breadcrumb small">
+      <li class="breadcrumb-item"><a href="/welcome">Campaigns</a></li>
+      <li class="breadcrumb-item active">{{ campaign_name }}</li>
+    </ol>
+  </nav>
+
+  {% with messages = get_flashed_messages() %}
+    {% if messages %}
+      <div class="alert alert-info alert-dismissible">
+        {{ messages[0] }}
+        <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+      </div>
+    {% endif %}
+  {% endwith %}
+
+  <!-- Upload -->
+  <div class="card mb-4">
+    <div class="card-header fw-semibold" data-i18n="doc.upload">Upload Bank Document</div>
+    <div class="card-body">
+      <form method="POST" action="/upload" enctype="multipart/form-data">
+        <input type="hidden" name="campaign_id" value="{{ campaign_id }}">
+        <div id="dropzone"
+             class="border border-2 border-dashed rounded p-5 text-center text-muted mb-3"
+             style="cursor:pointer"
+             onclick="document.getElementById('fileInput').click()">
+          <div>Drag &amp; drop bank documents here, or click to select</div>
+          <div id="fileName" class="fw-semibold text-dark mt-1"></div>
+          <input id="fileInput" type="file" name="documents" hidden multiple
+                 accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.tiff,.bmp"
+                 onchange="showName(this)">
+        </div>
+        <!-- Page range applies to PDFs only; hidden for CSV / Excel / images. -->
+        <div id="rangeBlock" class="d-flex align-items-end gap-3 flex-wrap mb-3" style="display:none">
+          <div>
+            <label class="form-label small mb-1">Pages to process <span class="text-muted">(scanned PDF only — leave blank for all)</span></label>
+            <div class="d-flex align-items-center gap-2">
+              <span class="small text-muted">from</span>
+              <input type="number" name="page_from" min="1" class="form-control form-control-sm" style="width:90px" placeholder="1">
+              <span class="small text-muted">to</span>
+              <input type="number" name="page_to" min="1" class="form-control form-control-sm" style="width:90px" placeholder="last">
+            </div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center">
+          <span class="text-muted small">Accepted: Excel, CSV, PDF, scanned PDF, images. Up to 20 files, 100 MB each.</span>
+          <button type="submit" class="btn btn-success" onclick="showProcessing(this)" data-i18n="doc.process">Process &amp; Upload</button>
+        </div>
+      </form>
+      <div id="processingNote" class="alert alert-info py-2 small mt-3" style="display:none">
+        Reading the document with local OCR — a scanned PDF takes roughly
+        <strong>6 seconds per page</strong>. Please keep this tab open…
+      </div>
+    </div>
+  </div>
+
+  <div id="fullscreenLoader" style="display:none; position:fixed; inset:0; z-index:2000; background:rgba(255,255,255,0.92); flex-direction:column; align-items:center; justify-content:center; text-align:center;">
+    <div class="spinner-border text-success" role="status" style="width:3.5rem; height:3.5rem;"></div>
+    <div class="fw-semibold mt-3 fs-5">Processing document…</div>
+    <div class="text-muted small mt-1" style="max-width:360px">
+      Reading with local OCR — a scanned PDF takes roughly <strong>6 seconds per page</strong>.
+      Please keep this tab open.
+    </div>
+  </div>
+
+  <!-- History -->
+  <h6 class="mb-2">Upload History</h6>
+  {% if documents %}
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>File</th>
+          <th>Uploaded</th>
+          <th class="text-end">Total</th>
+          <th class="text-end">Valid</th>
+          <th>Status</th>
+          <th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for doc in documents %}
+        <tr id="doc-{{ doc.batch_id }}">
+          <td>{{ doc.original_name }}</td>
+          <td class="small text-muted">{{ doc.uploaded_at | ist_date }} · {{ doc.uploaded_at | ist_time }}</td>
+          <td class="text-end" style="font-variant-numeric:tabular-nums">{{ doc.total_rows }}</td>
+          <td class="text-end" style="font-variant-numeric:tabular-nums">{{ doc.valid_rows }}</td>
+          <td>
+            <span class="badge
+              {% if doc.status == 'done' %}bg-success
+              {% elif doc.status == 'failed' %}bg-danger
+              {% elif doc.status == 'processing' %}bg-warning text-dark
+              {% else %}bg-secondary{% endif %}">
+              {{ doc.status }}
+            </span>
+          </td>
+          <td class="text-end">
+            <a href="/campaign/{{ doc.campaign_id }}?batch_id={{ doc.batch_id }}"
+               class="btn btn-sm btn-outline-primary">Open Dashboard</a>
+            <button class="btn btn-sm btn-outline-danger"
+                    onclick="deleteBatch('{{ doc.batch_id }}', '{{ doc.original_name }}')">Delete</button>
+          </td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% else %}
+    <p class="text-muted">No uploads yet. Upload a bank document above to begin.</p>
+  {% endif %}
+
+</main>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+function deleteBatch(batchId, name) {
+  if (!confirm(`Delete "${name}" and ALL its extracted cases, messages and tracking?\nThis cannot be undone.`)) return;
+  fetch(`/api/batch/${batchId}/delete`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        const row = document.getElementById("doc-" + batchId);
+        if (row) row.remove();
+      } else {
+        alert(d.error || "Could not delete this batch.");
+      }
+    })
+    .catch(() => alert("Could not delete this batch."));
+}
+
+function toggleRange(files) {
+  // Page range is meaningful only for PDFs. Detect by extension (instant) and
+  // show the control only then — CSV / Excel / images never see it.
+  const hasPdf = files.some(f => /\.pdf$/i.test(f.name));
+  document.getElementById("rangeBlock").style.display = hasPdf ? "" : "none";
+}
+
+function showName(input) {
+  const files = Array.from(input.files || []);
+  toggleRange(files);
+  if (!files.length) {
+    document.getElementById("fileName").textContent = "";
+    return;
+  }
+  if (files.length === 1) {
+    document.getElementById("fileName").textContent = files[0].name;
+    return;
+  }
+  const names = files.slice(0, 3).map(f => f.name).join(", ");
+  const extra = files.length > 3 ? `, +${files.length - 3} more` : "";
+  document.getElementById("fileName").textContent = `${files.length} files: ${names}${extra}`;
+}
+function showProcessing(btn) {
+  if (!document.getElementById("fileInput").files.length) return; // nothing chosen
+  document.getElementById("processingNote").style.display = "block";
+  const loader = document.getElementById("fullscreenLoader");
+  loader.style.display = "flex";
+  btn.disabled = true;
+  btn.textContent = "Processing…";
+  btn.form.submit();
+}
+window.addEventListener("pageshow", e => {
+  // Back/forward-cache restore after a failed/cancelled upload should not leave the loader stuck.
+  if (e.persisted) document.getElementById("fullscreenLoader").style.display = "none";
+});
+const dz = document.getElementById("dropzone");
+dz.addEventListener("dragover", e => { e.preventDefault(); dz.classList.add("border-primary"); });
+dz.addEventListener("dragleave", () => dz.classList.remove("border-primary"));
+dz.addEventListener("drop", e => {
+  e.preventDefault();
+  dz.classList.remove("border-primary");
+  if (e.dataTransfer.files.length) {
+    document.getElementById("fileInput").files = e.dataTransfer.files;
+    showName(document.getElementById("fileInput"));
+  }
+});
+</script>
+</body>

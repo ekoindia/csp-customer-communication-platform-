@@ -1,0 +1,1065 @@
+<title>Campaign Dashboard - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+<style>
+  /* Excel-like single active cell in the Cases table */
+  #casesTable td.cell-active {
+    outline: 2px solid #0d6efd;
+    outline-offset: -2px;
+    background: rgba(13, 110, 253, .10);
+  }
+</style>
+
+<body class="ops-body">
+<nav class="ops-topbar">
+  <div class="ops-nav-inner">
+  <a href="/welcome" class="ops-brand">
+    <span>
+      <p class="ops-brand-title">SBI Kiosk - Claw</p>
+      <span class="ops-brand-subtitle">CSP message automation</span>
+    </span>
+  </a>
+  <div class="ops-rail">
+    <span class="ops-status"><span class="ops-dot ok"></span>dashboard</span>
+    <span class="ops-status"><span class="ops-dot warn"></span>whatsapp bridge</span>
+    <a href="/campaign/{{ campaign_id }}/documents" class="btn btn-outline-primary btn-sm">Back to Documents</a>
+    {% if documents %}
+    <select class="form-select form-select-sm" style="width:auto"
+            onchange="window.location='/campaign/{{ campaign_id }}?batch_id='+this.value">
+      {% for doc in documents %}
+        <option value="{{ doc.batch_id }}"
+          {% if doc.batch_id == batch_id %}selected{% endif %}>
+          {{ doc.original_name }} ({{ doc.uploaded_at[:10] }})
+        </option>
+      {% endfor %}
+    </select>
+    {% endif %}
+    <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+    <a href="/logout" class="btn btn-outline-secondary btn-sm" data-i18n="nav.logout">Logout</a>
+    <span class="ops-user-pill">{{ (csp_name or 'OP')[:2]|upper }}</span>
+  </div>
+  </div>
+</nav>
+
+<main class="ops-shell">
+  {% if pending_update %}
+  <div class="alert alert-success d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <strong>Update ready — v{{ pending_update }}.</strong>
+      Downloaded and verified. Close this window and the WhatsApp server window,
+      then double-click the <strong>CSP Platform</strong> desktop icon again to apply it.
+    </div>
+  </div>
+  {% endif %}
+  <section class="ops-hero">
+    <div class="ops-kicker">CSP {{ csp_name }} - {{ batch_id or 'no batch selected' }}</div>
+    <h1 class="ops-title">Operations</h1>
+    <p class="ops-subtitle">
+      Check the customer list, get the messages ready, connect WhatsApp, and send them — all from here.
+    </p>
+  </section>
+
+  <!-- Tab nav -->
+  <ul class="nav nav-tabs ops-tabs mb-4" id="campaignTabs">
+    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#overview" data-i18n="tab.overview">Overview</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#cases" data-i18n="tab.cases">Cases</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#reports" data-i18n="tab.reports">Reports</a></li>
+    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#settings" data-i18n="tab.settings">Settings</a></li>
+  </ul>
+
+  <div class="tab-content">
+
+    <!-- ── OVERVIEW ── -->
+    <div class="tab-pane fade show active" id="overview">
+      {% if overview %}
+
+      <!-- Dispatch control bar — custom range first, then pick a mode -->
+      <div class="card mb-4">
+        <div class="card-body">
+
+          <!-- Step 1: custom range -->
+          <div class="d-flex align-items-center flex-wrap gap-3 mb-3">
+            <div class="d-flex align-items-center gap-2">
+              <label class="small text-muted mb-0 fw-semibold">1. How many to work with now?</label>
+              <input id="chunkSize" type="number" min="1" class="form-control form-control-sm"
+                     style="width:90px" placeholder="e.g. 30">
+              <button class="btn btn-outline-secondary btn-sm" onclick="setChunkAll()">All extracted</button>
+            </div>
+            <span class="text-muted small">
+              <strong id="unqueuedCount">{{ unqueued_count }}</strong> awaiting a decision ·
+              <strong id="queuePending">{{ queue_pending }}</strong> already approved / ready to send
+            </span>
+          </div>
+
+          <!-- Step 2: one entry point — opens a modal that forces a conscious
+               choice between manual approval and full automation -->
+          <div class="d-flex align-items-center flex-wrap gap-2 mb-3">
+            <label class="small text-muted mb-0 fw-semibold">2. Then:</label>
+            <button id="btnStartMessaging" class="btn btn-primary"
+                    data-bs-toggle="modal" data-bs-target="#startMessagingModal" data-i18n="disp.startmsg">
+              Start Messaging
+            </button>
+          </div>
+
+          <div class="d-flex align-items-center flex-wrap gap-3">
+            <div class="d-flex gap-2">
+              <button id="btnPause"  class="btn btn-outline-warning btn-sm" onclick="dispatchCmd('pause')"  disabled data-i18n="disp.pause">Pause</button>
+              <button id="btnResume" class="btn btn-outline-primary btn-sm" onclick="dispatchCmd('resume')" disabled data-i18n="disp.resume">Resume</button>
+              <button id="btnStop"   class="btn btn-outline-danger btn-sm"  onclick="dispatchCmd('stop')"   disabled data-i18n="disp.stop">Stop</button>
+            </div>
+            <div class="flex-grow-1" style="min-width:200px">
+              <div class="progress" style="height:18px">
+                <div id="dispatchBar" class="progress-bar bg-success" style="width:0%">0%</div>
+              </div>
+            </div>
+            <div id="dispatchMsg" class="text-muted small" style="min-width:220px">Idle</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Campaign progress -->
+      {% set total = overview.total or 0 %}
+      {% set reached_pct = ((overview.reached / total * 100) | round) if total else 0 %}
+      {% set visited_pct = ((overview.visited / total * 100) | round) if total else 0 %}
+      {% set closed = biz_breakdown.get('case_closed', 0) %}
+      {% set closed_pct = ((closed / total * 100) | round) if total else 0 %}
+      <div class="card mb-4">
+        <div class="card-header fw-semibold d-flex justify-content-between">
+          <span>Campaign Progress</span>
+          <span class="text-muted small">{{ total }} customers in this batch</span>
+        </div>
+        <div class="card-body">
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small"><span>Reached (message delivered)</span>
+              <span class="text-muted">{{ overview.reached }} / {{ total }}</span></div>
+            <div class="progress" style="height:16px">
+              <div class="progress-bar bg-success" style="width:{{ reached_pct }}%">{{ reached_pct }}%</div>
+            </div>
+          </div>
+          <div class="mb-3">
+            <div class="d-flex justify-content-between small"><span>Customer visited the CSP</span>
+              <span class="text-muted">{{ overview.visited }} / {{ total }}</span></div>
+            <div class="progress" style="height:16px">
+              <div class="progress-bar bg-info" style="width:{{ visited_pct }}%">{{ visited_pct }}%</div>
+            </div>
+          </div>
+          <div>
+            <div class="d-flex justify-content-between small"><span>Case closed</span>
+              <span class="text-muted">{{ closed }} / {{ total }}</span></div>
+            <div class="progress" style="height:16px">
+              <div class="progress-bar bg-secondary" style="width:{{ closed_pct }}%">{{ closed_pct }}%</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="ops-card mb-4">
+        <div class="ops-metric-grid">
+          <div class="ops-metric">
+            <div class="ops-metric-label">Total cases</div>
+            <div class="ops-metric-value">{{ overview.total }}</div>
+            <div>All customers in the selected batch.</div>
+          </div>
+          <div class="ops-metric">
+            <div class="ops-metric-label">Reached</div>
+            <div class="ops-metric-value">{{ overview.reached }}</div>
+            <div>Delivered or read through WhatsApp/SMS.</div>
+          </div>
+          <div class="ops-metric">
+            <div class="ops-metric-label">Failed</div>
+            <div class="ops-metric-value red">{{ overview.failed }}</div>
+            <div>Both-channel failure or escalation.</div>
+          </div>
+        </div>
+        <div class="ops-mini-grid">
+          <div class="ops-mini">
+            <div class="ops-mini-value">{{ overview.visited }}</div>
+            <div class="ops-mini-label">visited</div>
+          </div>
+          <div class="ops-mini">
+            <div class="ops-mini-value">{{ overview.pending }}</div>
+            <div class="ops-mini-label">pending visit</div>
+          </div>
+          <div class="ops-mini">
+            <div class="ops-mini-value">{{ overview.reach_rate }}%</div>
+            <div class="ops-mini-label">reach rate</div>
+          </div>
+          <div class="ops-mini">
+            <div class="ops-mini-value">{{ overview.wa_delivered }}</div>
+            <div class="ops-mini-label">wa delivered</div>
+          </div>
+          <div class="ops-mini">
+            <div class="ops-mini-value">{{ overview.sms_delivered }}</div>
+            <div class="ops-mini-label">sms delivered</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Channel breakdown: WhatsApp vs SMS, delivered vs read vs failed -->
+      <div class="row g-3 mb-4">
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-header fw-semibold">WhatsApp</div>
+            <div class="card-body">
+              <div class="row text-center">
+                <div class="col"><div class="fs-4 fw-semibold">{{ overview.wa_sent or 0 }}</div><div class="text-muted small">sent</div></div>
+                <div class="col"><div class="fs-4 fw-semibold text-secondary">{{ overview.wa_delivered_only or 0 }}</div><div class="text-muted small">delivered</div></div>
+                <div class="col"><div class="fs-4 fw-semibold text-success">{{ overview.wa_read or 0 }}</div><div class="text-muted small">read</div></div>
+                <div class="col"><div class="fs-4 fw-semibold text-danger">{{ overview.wa_failed or 0 }}</div><div class="text-muted small">failed</div></div>
+              </div>
+              <div class="text-muted small mt-2">delivered = reached the phone (grey ticks) · read = customer opened it (blue ticks).</div>
+            </div>
+          </div>
+        </div>
+        <div class="col-md-6">
+          <div class="card h-100">
+            <div class="card-header fw-semibold">SMS (fallback)</div>
+            <div class="card-body">
+              <div class="row text-center">
+                <div class="col"><div class="fs-4 fw-semibold">{{ overview.sms_sent or 0 }}</div><div class="text-muted small">sent</div></div>
+                <div class="col"><div class="fs-4 fw-semibold text-success">{{ overview.sms_delivered_only or 0 }}</div><div class="text-muted small">delivered</div></div>
+                <div class="col"><div class="fs-4 fw-semibold text-danger">{{ overview.sms_failed or 0 }}</div><div class="text-muted small">failed</div></div>
+              </div>
+              <div class="text-muted small mt-2">SMS has no "read" receipt. Used only when WhatsApp fails.</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category breakdown bars -->
+      {% if categories %}
+      <div class="card mb-4">
+        <div class="card-header fw-semibold">Category Breakdown</div>
+        <div class="card-body">
+          {% for cat in categories %}
+          {% set pct = (cat.reached / cat.total * 100) | round if cat.total else 0 %}
+          <div class="mb-2">
+            <div class="d-flex justify-content-between small">
+              <span>{{ cat.band_label }}</span>
+              <span class="text-muted">{{ cat.reached or 0 }} / {{ cat.total }}</span>
+            </div>
+            <div class="progress" style="height:14px">
+              <div class="progress-bar
+                {% if cat.band_label in ['B>10000', '1000<10000'] %}bg-danger
+                {% else %}bg-secondary{% endif %}"
+                style="width:{{ pct }}%">{{ pct }}%</div>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Escalations panel -->
+      {% if escalations %}
+      <div class="card border-danger mb-4">
+        <div class="card-header bg-danger text-white fw-semibold">
+          Escalations - both channels failed, manual visit required ({{ escalations|length }})
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr><th>Name</th><th>Band</th><th>Village</th><th>Taluka</th><th>Mobile</th></tr>
+            </thead>
+            <tbody>
+              {% for e in escalations %}
+              <tr style="cursor:pointer" onclick="window.location='/campaign/{{ campaign_id }}/case/{{ e.case_id }}'">
+                <td><span class="masked-name">{{ e.name }}</span></td>
+                <td><span class="badge bg-secondary">{{ e.band_label }}</span></td>
+                <td>{{ e.village or '-' }}</td>
+                <td>{{ e.taluka or '-' }}</td>
+                <td>{% if e.mobile %}<span class="masked-mobile">{{ e.mobile }}</span>{% else %}-{% endif %}</td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      <!-- Sensitive (B>10000) flagged panel — always needs individual approval -->
+      {% if sensitive %}
+      <div class="card border-warning mb-4">
+        <div class="card-header bg-warning text-dark fw-semibold">
+          Flagged Cases - B>10000 (Verify before sending)
+        </div>
+        <div class="card-body p-0">
+          <table class="table table-sm mb-0">
+            <thead class="table-light">
+              <tr><th>Name</th><th>Village</th><th>Mobile</th><th></th></tr>
+            </thead>
+            <tbody>
+              {% for s in sensitive %}
+              <tr id="row-{{ s.case_id }}" style="cursor:pointer"
+                  onclick="if(!event.target.closest('button')) window.location='/campaign/{{ campaign_id }}/case/{{ s.case_id }}'">
+                <td><span class="masked-name">{{ s.name }}</span></td>
+                <td>{{ s.village or '-' }}</td>
+                <td>{% if s.mobile %}<span class="masked-mobile">{{ s.mobile }}</span>{% else %}-{% endif %}</td>
+                <td>
+                  <button class="btn btn-sm btn-success me-1"
+                          onclick="sensitiveAction('{{ s.case_id }}','approve')">Approve</button>
+                  <button class="btn btn-sm btn-outline-secondary"
+                          onclick="sensitiveAction('{{ s.case_id }}','skip')">Skip</button>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+      </div>
+      {% endif %}
+
+      {% else %}
+        <p class="text-muted">No batch selected. <a href="/welcome">Upload a document</a> to get started.</p>
+      {% endif %}
+    </div>
+
+    <!-- ── CASES ── -->
+    <div class="tab-pane fade" id="cases">
+      <div class="mb-3 d-flex gap-2 flex-wrap">
+        <input type="search" id="searchBox" class="form-control form-control-sm" style="width:220px"
+               placeholder="Search name / village..." oninput="filterCases()">
+        <select id="filterBand" class="form-select form-select-sm" style="width:150px" onchange="filterCases()">
+          <option value="">All bands</option>
+          <option>0.1&lt;100</option>
+          <option>100&lt;1000</option>
+          <option>1000&lt;10000</option>
+          <option>B&gt;10000</option>
+        </select>
+        <select id="filterComm" class="form-select form-select-sm" style="width:160px" onchange="filterCases()">
+          <option value="">All comm status</option>
+          <option value="pending">communication pending</option>
+          <option>wa_attempted</option>
+          <option>wa_delivered</option>
+          <option>wa_read</option>
+          <option>wa_failed</option>
+          <option>sms_sent</option>
+          <option>sms_delivered</option>
+          <option>sms_failed</option>
+          <option>escalated</option>
+        </select>
+        <select id="filterBiz" class="form-select form-select-sm" style="width:180px" onchange="filterCases()">
+          <option value="">All visiting status</option>
+          <option value="pending">visiting pending</option>
+          <option>customer_not_visited</option>
+          <option>customer_visited_in_progress</option>
+          <option>process_completed</option>
+          <option>case_closed</option>
+        </select>
+      </div>
+      <div class="text-muted small mb-2">
+        Like a spreadsheet: move cell to cell with <kbd>←</kbd> <kbd>↑</kbd> <kbd>→</kbd> <kbd>↓</kbd>,
+        press <kbd>Enter</kbd> to open the case, <kbd>Home</kbd>/<kbd>End</kbd> for row start/end.
+      </div>
+
+      <div class="table-responsive">
+        <table class="table table-sm table-hover" id="casesTable">
+          <thead class="table-light">
+            <tr>
+              <th>#</th>
+              <th>Name</th>
+              <th>Mobile</th>
+              <th>Band</th>
+              <th>Channel</th>
+              <th>Comm Status</th>
+              <th>Visiting Status</th>
+              <th>Village</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for c in cases %}
+            <tr data-band="{{ c.band_label }}"
+                data-comm="{{ c.comm_status or 'pending' }}"
+                data-biz="{{ c.business_status or 'pending' }}"
+                data-search="{{ (c.name or '')|lower }} {{ (c.village or '')|lower }}"
+                data-case-id="{{ c.case_id }}"
+                style="cursor:pointer"
+                onclick="openCaseDetail(event, '{{ c.case_id }}')">
+              <td>{{ loop.index }}</td>
+              <td>{% if c.name %}<span class="masked-name">{{ c.name }}</span>{% else %}<span class="text-muted small">record purged</span>{% endif %}</td>
+              <td>{% if c.mobile %}<span class="masked-mobile">{{ c.mobile }}</span>{% else %}-{% endif %}</td>
+              <td>
+                <span class="badge
+                  {% if c.band_label in ['B>10000', '1000<10000'] %}bg-danger
+                  {% else %}bg-secondary{% endif %}">
+                  {{ c.band_label }}
+                </span>
+              </td>
+              <td>{{ c.channel or '-' }}</td>
+              <td>
+                <span class="badge
+                  {% if c.comm_status in ('wa_delivered','wa_read','sms_delivered') %}bg-success
+                  {% elif c.comm_status in ('wa_failed','sms_failed','escalated') %}bg-danger
+                  {% else %}bg-light text-dark{% endif %}">
+                  {% if not c.comm_status or c.comm_status == 'pending' %}communication pending{% else %}{{ c.comm_status }}{% endif %}
+                </span>
+              </td>
+              <td>
+                <span class="badge
+                  {% if c.business_status == 'case_closed' %}bg-success
+                  {% elif c.business_status == 'process_completed' %}bg-info
+                  {% elif c.business_status == 'customer_visited_in_progress' %}bg-primary
+                  {% elif c.business_status == 'customer_not_visited' %}bg-warning text-dark
+                  {% else %}bg-light text-dark{% endif %}">
+                  {% if not c.business_status or c.business_status == 'pending' %}visiting pending{% else %}{{ c.business_status }}{% endif %}
+                </span>
+              </td>
+              <td>{{ c.village or '-' }}</td>
+              <td onclick="event.stopPropagation()">
+                {% if c.business_status == 'case_closed' %}
+                  <span class="text-muted small">Closed</span>
+                {% else %}
+                  <div class="d-flex gap-1">
+                    {% if c.business_status in ('pending', 'customer_not_visited') %}
+                      <button class="btn btn-sm btn-outline-primary"
+                              onclick="updateStatus('{{ c.case_id }}','customer_visited_in_progress',this)">
+                        Visited
+                      </button>
+                    {% endif %}
+                    <button class="btn btn-sm btn-success"
+                            onclick="updateStatus('{{ c.case_id }}','case_closed',this)">
+                      Close
+                    </button>
+                  </div>
+                {% endif %}
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- ── REPORTS ── -->
+    <div class="tab-pane fade" id="reports">
+      {% if batch_id %}
+      <div class="row g-3">
+
+        <!-- Business status breakdown -->
+        <div class="col-md-5">
+          <div class="card">
+            <div class="card-header fw-semibold d-flex justify-content-between">
+              <span>Visiting Status Summary</span>
+              <a class="btn btn-sm btn-outline-secondary"
+                 href="/report/{{ batch_id }}/cases.csv">Download CSV</a>
+            </div>
+            <div class="card-body p-0">
+              <table class="table table-sm mb-0">
+                <tbody>
+                  {% set labels = {
+                    'pending':'Pending (not sent)',
+                    'customer_not_visited':'Message sent, not visited',
+                    'customer_visited_in_progress':'Visited - in progress',
+                    'process_completed':'Process completed',
+                    'case_closed':'Case closed'
+                  } %}
+                  {% for key, label in labels.items() %}
+                  <tr>
+                    <td>{{ label }}</td>
+                    <td class="text-end fw-semibold">{{ biz_breakdown.get(key, 0) }}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- Visit log -->
+        <div class="col-md-7">
+          <div class="card">
+            <div class="card-header fw-semibold">Visit Log ({{ visit_log|length }})</div>
+            <div class="card-body p-0" style="max-height:380px;overflow:auto">
+              {% if visit_log %}
+              <table class="table table-sm mb-0">
+                <thead class="table-light">
+                  <tr><th>Name</th><th>Village</th><th>Band</th><th>Status</th><th>Visited</th></tr>
+                </thead>
+                <tbody>
+                  {% for v in visit_log %}
+                  <tr>
+                    <td><span class="masked-name">{{ v.name }}</span></td>
+                    <td>{{ v.village or '-' }}</td>
+                    <td><span class="badge bg-secondary">{{ v.band_label }}</span></td>
+                    <td class="small">{{ v.business_status }}</td>
+                    <td class="small">{{ v.visited_at | ist_date }}{% if v.visited_at %}<br><span class="text-muted">{{ v.visited_at | ist_time }}</span>{% endif %}</td>
+                  </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+              {% else %}
+                <p class="text-muted p-3 mb-0">No visits recorded yet.</p>
+              {% endif %}
+            </div>
+          </div>
+        </div>
+
+      </div>
+      {% else %}
+        <p class="text-muted">No batch selected.</p>
+      {% endif %}
+    </div>
+
+    <!-- ── SETTINGS ── -->
+    <div class="tab-pane fade" id="settings">
+      <div class="row g-3">
+
+        <!-- CSP config form -->
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header fw-semibold">CSP Details</div>
+            <div class="card-body">
+              <div id="settingsAlert"></div>
+              <div class="mb-3">
+                <label class="form-label">CSP Name</label>
+                <input id="cspName" class="form-control" value="{{ csp_settings.csp_name }}">
+                <div class="form-text">Appears as the sender name in every message.</div>
+              </div>
+              <div class="mb-3">
+                <label class="form-label">CSP Phone</label>
+                <input id="cspPhone" class="form-control" value="{{ csp_settings.csp_phone }}">
+              </div>
+              <div class="mb-3">
+                <label class="form-label">CSP Address</label>
+                <textarea id="cspAddress" class="form-control" rows="2">{{ csp_settings.csp_address }}</textarea>
+              </div>
+              <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Channel status -->
+        <div class="col-md-6">
+          <div class="card">
+            <div class="card-header fw-semibold d-flex justify-content-between">
+              <span>Channel Status</span>
+              <button class="btn btn-sm btn-outline-secondary" onclick="loadChannelStatus()">Refresh</button>
+            </div>
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between border-bottom py-2">
+                <span class="fw-semibold">WhatsApp</span>
+                <span id="waStatus" class="badge bg-secondary">checking...</span>
+              </div>
+              <div class="text-muted small mb-3" id="waDetail">-</div>
+              <div class="d-flex gap-2 mb-3 flex-wrap">
+                <button id="btnStartWa" class="btn btn-sm btn-success" onclick="startWhatsAppServer()">
+                  Start WhatsApp
+                </button>
+                <button class="btn btn-sm btn-outline-secondary" onclick="loadWhatsappQr()">
+                  Show QR
+                </button>
+                <button class="btn btn-sm btn-outline-danger" onclick="resetWhatsapp()"
+                        title="If the QR does not appear, this drops any old session and makes a fresh QR">
+                  Reset &amp; New QR
+                </button>
+              </div>
+              <div id="waQrBox" class="ops-qr-box text-center p-3 mb-3 d-none">
+                <img id="waQrImage" alt="WhatsApp login QR" class="img-fluid" style="max-width:260px">
+                <div id="waQrText" class="text-muted small mt-2">Scan with sender WhatsApp</div>
+              </div>
+              <div class="d-flex align-items-center justify-content-between border-bottom py-2">
+                <span class="fw-semibold">SMS (MSG91)</span>
+                <span id="smsStatus" class="badge bg-secondary">checking...</span>
+              </div>
+              <div class="text-muted small" id="smsDetail">-</div>
+            </div>
+          </div>
+
+          <div class="card mt-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">Audit Log</div>
+                <div class="text-muted small">Login, dispatch, settings &amp; case events.</div>
+              </div>
+              <a href="/audit" class="btn btn-outline-secondary btn-sm">View Log</a>
+            </div>
+          </div>
+
+          <div class="card mt-3">
+            <div class="card-body d-flex justify-content-between align-items-center">
+              <div>
+                <div class="fw-semibold">Eko Admin Connection</div>
+                <div class="text-muted small">CSP ID &amp; API key for admin-portal reporting (no customer data).</div>
+              </div>
+              <a href="{{ url_for('dashboard.admin_connect') }}" class="btn btn-outline-secondary btn-sm">Reconfigure</a>
+            </div>
+          </div>
+        </div>
+
+      </div>
+    </div>
+
+  </div>
+</main>
+
+<!-- Start Messaging modal — a deliberate "attention" gate before anything sends -->
+<div class="modal fade" id="startMessagingModal" tabindex="-1" aria-hidden="true">
+  <div class="modal-dialog modal-dialog-centered modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title">Start Messaging — how do you want to send?</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="alert alert-warning">
+          <strong>Attention.</strong> Messages go out in <strong>{{ csp_name }}</strong>'s name to real
+          customers. Choose whether to <strong>check &amp; approve each case yourself</strong>, or let the
+          system <strong>send to everyone automatically</strong>.
+          Flagged <strong>B&gt;10000</strong> cases are never auto-sent — you must approve those one by one.
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <div class="card h-100 border-primary">
+              <div class="card-body d-flex flex-column">
+                <h6 class="fw-semibold">Check manually, then approve</h6>
+                <p class="text-muted small flex-grow-1 mb-3">
+                  Recommended when you are not fully sure of the extracted data. Opens a review
+                  sheet of every customer: click a name to see and edit the full record, tick the
+                  ones you approve (or approve all remaining), then send only those. Nothing sends
+                  until you press Send.
+                </p>
+                <a class="btn btn-outline-primary"
+                   href="/campaign/{{ campaign_id }}/approve_sheet/{{ batch_id }}">
+                  Open Review Sheet
+                </a>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card h-100 border-success">
+              <div class="card-body d-flex flex-column">
+                <h6 class="fw-semibold">Automate — send to everyone</h6>
+                <p class="text-muted small flex-grow-1 mb-3">
+                  Queues and sends up to the number chosen above (most urgent first), skipping flagged
+                  B&gt;10000 cases. Use this once you trust the extracted data.
+                </p>
+                <button id="btnSend" class="btn btn-success" onclick="dispatchStart()">
+                  Send Automatically
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="/static/vendor/bootstrap.bundle.min.js"></script>
+<script src="/static/js/mask.js"></script>
+<script src="/static/js/i18n.js"></script>
+<script>
+const CAMPAIGN_ID = "{{ campaign_id }}";
+
+function openCaseDetail(evt, caseId) {
+  if (evt.target.closest("button")) return;  // let action buttons handle their own click
+  window.location = `/campaign/${CAMPAIGN_ID}/case/${caseId}`;
+}
+
+function filterCases() {
+  const q    = document.getElementById("searchBox").value.toLowerCase();
+  const band = document.getElementById("filterBand").value;
+  const comm = document.getElementById("filterComm").value;
+  const biz  = document.getElementById("filterBiz").value;
+  document.querySelectorAll("#casesTable tbody tr").forEach(r => {
+    const ok = (!q    || r.dataset.search.includes(q))
+            && (!band || r.dataset.band === band)
+            && (!comm || r.dataset.comm === comm)
+            && (!biz  || r.dataset.biz  === biz);
+    r.style.display = ok ? "" : "none";
+  });
+  // If the active cell's row got filtered out, drop the highlight so the next
+  // arrow press starts fresh from the visible list.
+  if (activeCell && activeCell.parentElement.style.display === "none") setActiveCell(null);
+}
+
+// ── Excel-like cell-by-cell keyboard navigation over the Cases table ──
+// ← ↑ → ↓ move a single highlighted CELL: left/right across columns, up/down
+// across the currently VISIBLE (filtered) rows keeping the same column. Enter
+// opens the case for the active cell's row; Home/End jump to the row's first/
+// last column. Ignored while typing in a search/filter box, and only active
+// while the Cases tab is showing.
+let activeCell = null;
+
+function visibleRows() {
+  return Array.from(document.querySelectorAll("#casesTable tbody tr"))
+    .filter(r => r.style.display !== "none");
+}
+
+function setActiveCell(cell) {
+  document.querySelectorAll("#casesTable td.cell-active")
+    .forEach(c => c.classList.remove("cell-active"));
+  activeCell = cell || null;
+  if (activeCell) {
+    activeCell.classList.add("cell-active");
+    activeCell.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+function moveCell(dRow, dCol) {
+  const rows = visibleRows();
+  if (!rows.length) return;
+  if (!activeCell) { setActiveCell(rows[0].cells[0]); return; }
+
+  const curRow = activeCell.parentElement;
+  const colIdx = activeCell.cellIndex;
+
+  if (dCol !== 0) {
+    const c = Math.min(curRow.cells.length - 1, Math.max(0, colIdx + dCol));
+    setActiveCell(curRow.cells[c]);
+    return;
+  }
+  if (dRow !== 0) {
+    let rIdx = rows.indexOf(curRow);
+    if (rIdx === -1) { setActiveCell(rows[0].cells[colIdx] || rows[0].cells[0]); return; }
+    rIdx = Math.min(rows.length - 1, Math.max(0, rIdx + dRow));
+    const target = rows[rIdx];
+    setActiveCell(target.cells[Math.min(target.cells.length - 1, colIdx)]);
+  }
+}
+
+function casesTabActive() {
+  const pane = document.getElementById("cases");
+  return pane && pane.classList.contains("active");
+}
+
+document.addEventListener("keydown", (e) => {
+  if (!casesTabActive()) return;
+  const tag = (e.target.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select" || e.target.isContentEditable) return;
+  if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+  if (e.key === "ArrowDown")       { e.preventDefault(); moveCell(1, 0); }
+  else if (e.key === "ArrowUp")    { e.preventDefault(); moveCell(-1, 0); }
+  else if (e.key === "ArrowRight") { e.preventDefault(); moveCell(0, 1); }
+  else if (e.key === "ArrowLeft")  { e.preventDefault(); moveCell(0, -1); }
+  else if (e.key === "Home" && activeCell) { e.preventDefault(); setActiveCell(activeCell.parentElement.cells[0]); }
+  else if (e.key === "End" && activeCell)  { e.preventDefault(); const c = activeCell.parentElement.cells; setActiveCell(c[c.length - 1]); }
+  else if (e.key === "Enter" && activeCell) {
+    e.preventDefault();
+    const id = activeCell.parentElement.dataset.caseId;
+    if (id) window.location = `/campaign/${CAMPAIGN_ID}/case/${id}`;
+  }
+});
+
+// Clicking a cell selects it (Excel-style), so the arrows continue from there.
+document.querySelectorAll("#casesTable tbody td").forEach(td => {
+  td.addEventListener("click", () => setActiveCell(td));
+});
+
+// Select the first cell the moment the Cases tab is opened, so the arrows have
+// a starting point without needing a click first.
+const casesTabLink = document.querySelector('a[href="#cases"]');
+if (casesTabLink) {
+  casesTabLink.addEventListener("shown.bs.tab", () => {
+    if (!activeCell) { const r = visibleRows(); if (r.length) setActiveCell(r[0].cells[0]); }
+  });
+}
+
+function updateStatus(caseId, status, btn) {
+  if (btn) btn.disabled = true;
+  fetch(`/api/case/${caseId}/status`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ status }),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.ok) { location.reload(); }
+    else { alert(d.error || "Could not update status."); if (btn) btn.disabled = false; }
+  })
+  .catch(() => { alert("Could not update status."); if (btn) btn.disabled = false; });
+}
+
+function sensitiveAction(caseId, action) {
+  fetch(`/api/case/${caseId}/${action}`, { method: "POST" })
+    .then(r => r.json())
+    .then(d => { if (d.ok) document.getElementById("row-"+caseId).remove(); });
+}
+
+// ── Dispatch control ──
+const BATCH_ID = "{{ batch_id or '' }}";
+let pollTimer = null;
+let observedRunning = false;   // true only while we're watching a LIVE run
+
+function closeStartModal() {
+  const el = document.getElementById("startMessagingModal");
+  const inst = bootstrap.Modal.getInstance(el);
+  if (inst) inst.hide();
+}
+
+function approveRemaining() {
+  if (!BATCH_ID) return;
+  const raw = document.getElementById("chunkSize").value.trim();
+  const limit = raw === "" ? null : parseInt(raw, 10);
+  const btn = document.getElementById("btnApproveRemaining");
+  btn.disabled = true;
+  fetch(`/api/batch/${BATCH_ID}/approve_remaining`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ limit }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (d.approved !== undefined) {
+        location.reload();  // refresh counts + Cases tab statuses
+      } else {
+        alert(d.reason || "Could not approve remaining cases.");
+        btn.disabled = false;
+      }
+    });
+}
+
+function setChunkAll() {
+  document.getElementById("chunkSize").value = "";
+}
+
+function dispatchStart() {
+  if (!BATCH_ID) return;
+  const raw = document.getElementById("chunkSize").value.trim();
+  const chunk_size = raw === "" ? null : parseInt(raw, 10);
+  fetch(`/api/batch/${BATCH_ID}/send`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ chunk_size }),
+  })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.started) { alert(d.reason); return; }
+      closeStartModal();
+      observedRunning = true;   // we just started a run — ensure the finish refresh fires
+      startPolling();
+    });
+}
+
+function dispatchCmd(cmd) {
+  fetch(`/api/dispatch/${cmd}`, { method: "POST" })
+    .then(r => r.json())
+    .then(() => {
+      // Reflect the new state immediately instead of waiting for the next tick.
+      // Keep polling alive for pause/resume/stop so the bar and buttons stay
+      // live (stop resolves to running=false on the next poll, which then
+      // refreshes the page once).
+      if (!pollTimer) startPolling(); else pollStatus();
+    });
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollStatus, 1500);
+  pollStatus();
+}
+
+function stopPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+function renderDispatch(s) {
+  const pct = s.total ? Math.round(s.done / s.total * 100) : 0;
+  const bar = document.getElementById("dispatchBar");
+  bar.style.width = pct + "%";
+  bar.textContent = pct + "%";
+  document.getElementById("dispatchMsg").textContent = s.message || "Idle";
+
+  const running = s.running;
+  const btnSend = document.getElementById("btnSend");
+  if (btnSend) btnSend.disabled = running;
+  document.getElementById("btnPause").disabled  = !running || s.paused;
+  document.getElementById("btnResume").disabled = !running || !s.paused;
+  document.getElementById("btnStop").disabled   = !running;
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollStatus, 1500);
+  pollStatus();
+}
+
+function stopPolling() {
+  clearInterval(pollTimer);
+  pollTimer = null;
+}
+
+function pollStatus() {
+  fetch("/api/dispatch/status")
+    .then(r => r.json())
+    .then(s => {
+      renderDispatch(s);
+      if (s.running) {
+        observedRunning = true;
+      } else {
+        stopPolling();
+        // Only refresh when a run we were ACTIVELY watching has just finished —
+        // reload exactly once to update the metrics + Cases tab. On a plain page
+        // load of an already-finished batch we do nothing, so the page no longer
+        // bounces back to itself and traps the CSP (they can freely open Cases
+        // to do manual tracking).
+        if (observedRunning) {
+          observedRunning = false;
+          setTimeout(() => location.reload(), 1200);
+        }
+      }
+    });
+}
+
+// On load, check the dispatch state ONCE. Start live polling only if a run is
+// actually in progress; never auto-reload an idle/finished batch.
+if (BATCH_ID) {
+  fetch("/api/dispatch/status")
+    .then(r => r.json())
+    .then(s => {
+      renderDispatch(s);
+      if (s.running) { observedRunning = true; startPolling(); }
+    });
+}
+
+// ── Settings ──
+function saveSettings() {
+  const body = {
+    csp_name: document.getElementById("cspName").value,
+    csp_phone: document.getElementById("cspPhone").value,
+    csp_address: document.getElementById("cspAddress").value,
+  };
+  fetch("/api/settings", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  })
+  .then(r => r.json())
+  .then(d => {
+    const box = document.getElementById("settingsAlert");
+    if (d.ok) {
+      box.innerHTML = '<div class="alert alert-success py-2">Settings saved.</div>';
+    } else {
+      box.innerHTML = '<div class="alert alert-danger py-2">' +
+        (d.errors || ["Save failed"]).join("<br>") + '</div>';
+    }
+  });
+}
+
+// ── Channel status ──
+let waQrTimer = null;
+
+function loadChannelStatus() {
+  fetch("/api/channel/status")
+    .then(r => r.json())
+    .then(s => {
+      const wa = document.getElementById("waStatus");
+      wa.textContent = s.whatsapp.ready ? "Connected" : "Offline";
+      wa.className = "badge " + (s.whatsapp.ready ? "bg-success" : "bg-danger");
+      document.getElementById("waDetail").textContent = s.whatsapp.detail;
+      document.getElementById("btnStartWa").disabled = s.whatsapp.ready;
+
+      if (s.whatsapp.ready) {
+        hideWhatsappQr();
+        stopWhatsappQrPolling();
+      } else {
+        // Not connected — keep polling so the QR is shown the moment it exists
+        // (it may take a second or two to generate after the server starts).
+        startWhatsappQrPolling();
+      }
+
+      const sms = document.getElementById("smsStatus");
+      sms.textContent = s.sms.configured ? "Configured" : "Not configured";
+      sms.className = "badge " + (s.sms.configured ? "bg-success" : "bg-secondary");
+      document.getElementById("smsDetail").textContent = s.sms.detail;
+    })
+    .catch(() => {
+      document.getElementById("waDetail").textContent = "status check failed";
+    });
+}
+
+function startWhatsAppServer() {
+  const btn = document.getElementById("btnStartWa");
+  btn.disabled = true;
+  document.getElementById("waDetail").textContent = "starting WhatsApp server...";
+  fetch("/api/channel/whatsapp/start", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) {
+        document.getElementById("waDetail").textContent = d.error || "could not start WhatsApp";
+        btn.disabled = false;
+        return;
+      }
+      document.getElementById("waDetail").textContent = d.ready ? "connected" : "waiting for QR scan";
+      startWhatsappQrPolling();
+    })
+    .catch(() => {
+      document.getElementById("waDetail").textContent = "could not start WhatsApp";
+      btn.disabled = false;
+    });
+}
+
+function loadWhatsappQr() {
+  fetch("/api/channel/whatsapp/qr")
+    .then(r => r.json())
+    .then(d => {
+      if (d.ready) {
+        document.getElementById("waStatus").textContent = "Connected";
+        document.getElementById("waStatus").className = "badge bg-success";
+        document.getElementById("waDetail").textContent = "connected";
+        hideWhatsappQr();
+        stopWhatsappQrPolling();
+        return;
+      }
+      if (d.qr) {
+        document.getElementById("waQrImage").src = d.qr;
+        document.getElementById("waQrBox").classList.remove("d-none");
+        document.getElementById("waQrText").textContent = "Scan with sender WhatsApp";
+        document.getElementById("waDetail").textContent = "QR ready for sender login";
+        startWhatsappQrPolling();
+      } else {
+        // Server up but QR not generated yet — tell the user and keep polling.
+        document.getElementById("waDetail").textContent =
+          "waiting for QR… if it does not appear, click \"Reset & New QR\"";
+      }
+    })
+    .catch(() => {
+      document.getElementById("waDetail").textContent =
+        "WhatsApp server not running — click \"Start WhatsApp\"";
+    });
+}
+
+function resetWhatsapp() {
+  hideWhatsappQr();
+  document.getElementById("waDetail").textContent = "resetting — generating a fresh QR…";
+  fetch("/api/channel/whatsapp/reset", { method: "POST" })
+    .then(r => r.json())
+    .then(d => {
+      if (d.ok) {
+        startWhatsappQrPolling();
+      } else {
+        // Server probably not running yet — start it, which also yields a QR.
+        startWhatsAppServer();
+      }
+    })
+    .catch(() => { startWhatsAppServer(); });
+}
+
+function hideWhatsappQr() {
+  document.getElementById("waQrBox").classList.add("d-none");
+  document.getElementById("waQrImage").removeAttribute("src");
+}
+
+function startWhatsappQrPolling() {
+  if (waQrTimer) return;
+  waQrTimer = setInterval(() => {
+    loadChannelStatus();
+    loadWhatsappQr();
+  }, 3000);
+  setTimeout(loadWhatsappQr, 1200);
+}
+
+function stopWhatsappQrPolling() {
+  clearInterval(waQrTimer);
+  waQrTimer = null;
+}
+
+// Load channel status when the Settings tab is first shown
+document.querySelector('a[href="#settings"]')
+  .addEventListener("shown.bs.tab", loadChannelStatus, { once: true });
+</script>
+</body>

@@ -1,0 +1,253 @@
+"""
+CSP-side self-updater.
+
+Eko cannot push to a CSP's local PC (it's behind NAT), so updates are PULL-based:
+the background sync loop learns a newer version is published (via /sync), then
+this module DOWNLOADS + VERIFIES + STAGES the update package. The swap itself is
+applied at the NEXT app start by the launcher (`--apply-if-pending`), when the
+app's own files aren't loaded/locked yet — so there is no half-updated running
+process and no Windows file-lock fight.
+
+Data safety: applying an update copies only CODE into place and SKIPS the CSP's
+data/config/session (see _PRESERVE) — the local SQLite DB, config.py (CSP name /
+keys), the WhatsApp session, uploads, and secrets are never touched by an update.
+
+An update does NOT rebuild the environment from scratch: Python/Node/Tesseract
+and the existing .venv / whatsapp/node_modules are reused. It only swaps the
+(small, code-only) package, then runs an INCREMENTAL dependency sync
+(refresh_dependencies) so a release that adds a new library still works — a
+few-second no-op for the common code-only update.
+
+Package format: a .zip of the app tree (optionally under a single top-level
+folder). It should contain a VERSION file with the new version string.
+"""
+import hashlib
+import json
+import os
+import shutil
+import tempfile
+import zipfile
+from urllib.request import urlopen
+
+APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+UPDATE_DIR = os.path.join(APP_ROOT, "update")
+STAGING = os.path.join(UPDATE_DIR, "staged")
+PENDING = os.path.join(UPDATE_DIR, "pending.json")
+
+# Top-level paths an update must NEVER overwrite (the CSP's own data/config).
+_PRESERVE = {
+    "config.py",              # CSP name / phone / API keys / settings
+    "database",               # local SQLite (all customer data)
+    "uploads",                # transient upload scratch
+    "update",                 # this updater's own working dir
+    "secret.key",             # Flask session secret
+    ".venv", ".git", "__pycache__", ".pytest_cache",
+}
+# Nested paths (under an otherwise-updatable folder) to also preserve.
+# (The admin portal lives in the separate code/admin_dashboard/ tree and is
+# never part of a CSP install, so it needs no preserve entry here.)
+_PRESERVE_NESTED = {
+    os.path.join("whatsapp", ".wa_session"),   # WhatsApp login (don't re-scan QR)
+    os.path.join("whatsapp", "node_modules"),  # installed bridge deps
+}
+
+
+def _sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(1 << 20), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _download(url: str, dest: str):
+    """Fetch url -> dest. Supports http(s):// and file:// (file:// used in tests)."""
+    with urlopen(url, timeout=60) as r, open(dest, "wb") as f:  # nosec - admin-set URL
+        shutil.copyfileobj(r, f)
+
+
+def _is_preserved(rel: str) -> bool:
+    top = rel.replace("\\", "/").split("/", 1)[0]
+    if top in _PRESERVE:
+        return True
+    rel_norm = rel.replace("/", os.sep)
+    return any(rel_norm == p or rel_norm.startswith(p + os.sep) for p in _PRESERVE_NESTED)
+
+
+def _zip_root(zpath: str) -> str:
+    """If the zip wraps everything in a single top folder, return that folder so
+    we extract its CONTENTS as the app root; else return ''."""
+    with zipfile.ZipFile(zpath) as z:
+        names = [n for n in z.namelist() if n and not n.startswith("__MACOSX")]
+    tops = {n.replace("\\", "/").split("/", 1)[0] for n in names}
+    return tops.pop() if len(tops) == 1 and any("/" in n for n in names) else ""
+
+
+def stage_update(version: str, url: str, sha256: str = None) -> dict:
+    """Download + verify + extract the update package into STAGING and record a
+    pending marker. Does NOT modify the running app. Never raises."""
+    try:
+        os.makedirs(UPDATE_DIR, exist_ok=True)
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False,
+                                          dir=UPDATE_DIR).name
+        _download(url, tmp)
+        got = _sha256(tmp)
+        if sha256 and got.lower() != sha256.strip().lower():
+            os.remove(tmp)
+            return {"ok": False, "error": f"sha256 mismatch (got {got[:12]}...)"}
+        if not zipfile.is_zipfile(tmp):
+            os.remove(tmp)
+            return {"ok": False, "error": "downloaded file is not a valid zip"}
+
+        if os.path.isdir(STAGING):
+            shutil.rmtree(STAGING, ignore_errors=True)
+        os.makedirs(STAGING, exist_ok=True)
+        root = _zip_root(tmp)
+        with zipfile.ZipFile(tmp) as z:
+            if root:
+                for m in z.namelist():
+                    if m.startswith(root + "/") and not m.endswith("/"):
+                        target = os.path.join(STAGING, m[len(root) + 1:].replace("/", os.sep))
+                        os.makedirs(os.path.dirname(target), exist_ok=True)
+                        with z.open(m) as src, open(target, "wb") as dst:
+                            shutil.copyfileobj(src, dst)
+            else:
+                z.extractall(STAGING)
+        os.remove(tmp)
+
+        with open(PENDING, "w", encoding="utf-8") as f:
+            json.dump({"version": version, "sha256": got, "source": url}, f)
+        return {"ok": True, "version": version, "sha256": got}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def pending_version():
+    """Return the staged-but-not-applied version, or None."""
+    try:
+        with open(PENDING, "r", encoding="utf-8") as f:
+            return json.load(f).get("version")
+    except Exception:
+        return None
+
+
+def apply_pending() -> dict:
+    """Copy staged CODE over the app (skipping CSP data/config/session), then
+    clear the staging + pending marker. Safe to call at every startup — a no-op
+    when nothing is staged. Run this BEFORE the app imports its own modules."""
+    if not os.path.isfile(PENDING) or not os.path.isdir(STAGING):
+        return {"ok": True, "applied": False}
+    version = pending_version()
+    copied = 0
+    try:
+        for dirpath, _dirs, files in os.walk(STAGING):
+            for name in files:
+                src = os.path.join(dirpath, name)
+                rel = os.path.relpath(src, STAGING)
+                if _is_preserved(rel):
+                    continue
+                dst = os.path.join(APP_ROOT, rel)
+                os.makedirs(os.path.dirname(dst), exist_ok=True)
+                shutil.copy2(src, dst)
+                copied += 1
+        shutil.rmtree(STAGING, ignore_errors=True)
+        os.remove(PENDING)
+        return {"ok": True, "applied": True, "version": version, "files": copied}
+    except Exception as e:
+        return {"ok": False, "applied": False, "error": str(e)}
+
+
+def refresh_dependencies() -> dict:
+    """After an update swaps in new CODE, make sure the installed Python and Node
+    libraries still match the (possibly changed) requirements-lite.txt /
+    package.json. Both installers are INCREMENTAL — a few-second no-op when
+    nothing changed, and the correct action when a release adds a new library.
+    Without this, a dependency-adding update would ship code that imports a
+    package that was never installed. Best-effort: never blocks app startup, and
+    it reuses the existing .venv / node_modules (it does NOT reinstall Python,
+    Node, Tesseract, or rebuild the environment from scratch)."""
+    import subprocess
+    import sys
+    out = {"pip": None, "npm": None}
+    req = os.path.join(APP_ROOT, "requirements-lite.txt")
+    if os.path.isfile(req):
+        try:
+            print("[updater] syncing Python dependencies after update...")
+            r = subprocess.run([sys.executable, "-m", "pip", "install", "-r", req],
+                               cwd=APP_ROOT, timeout=1800)
+            out["pip"] = r.returncode
+        except Exception as e:
+            print(f"[updater] pip sync skipped: {e}")
+    wa = os.path.join(APP_ROOT, "whatsapp")
+    if os.path.isfile(os.path.join(wa, "package.json")):
+        try:
+            print("[updater] syncing WhatsApp bridge dependencies after update...")
+            r = subprocess.run(["npm", "install"], cwd=wa, timeout=1800, shell=True)
+            out["npm"] = r.returncode
+        except Exception as e:
+            print(f"[updater] npm sync skipped: {e}")
+    return out
+
+
+def _version_in_zip(zip_path: str):
+    """Read the VERSION file bundled in a local update .zip (root or under a
+    single wrapping folder). This is the version the package will report once
+    applied, so it is authoritative. Returns None if absent."""
+    try:
+        with zipfile.ZipFile(zip_path) as z:
+            for n in z.namelist():
+                if n.endswith("/"):
+                    continue
+                parts = n.replace("\\", "/").split("/")
+                if parts[-1] == "VERSION" and len(parts) <= 2:
+                    return z.read(n).decode("utf-8", "replace").strip() or None
+    except Exception:
+        return None
+    return None
+
+
+def apply_local_zip(zip_path: str) -> dict:
+    """MANUAL update path: apply an update package that was handed to the CSP as
+    a file (e.g. CSP_Update.zip dropped into the install folder), with no admin
+    portal / internet involved. Stages the local zip, applies the code swap
+    (preserving config/DB/session/keys — see _PRESERVE), and re-syncs
+    dependencies. Returns the apply result. Never partially applies: staging
+    verifies it's a valid zip first."""
+    if not os.path.isfile(zip_path):
+        return {"ok": False, "applied": False, "error": f"file not found: {zip_path}"}
+    version = _version_in_zip(zip_path) or "manual"
+    # stage_update fetches via urlopen, which supports file:// URLs.
+    url = "file:///" + os.path.abspath(zip_path).replace("\\", "/")
+    staged = stage_update(version, url, None)
+    if not staged.get("ok"):
+        return {"ok": False, "applied": False, "error": staged.get("error")}
+    res = apply_pending()
+    if res.get("applied"):
+        refresh_dependencies()
+    return res
+
+
+if __name__ == "__main__":
+    import sys
+    if "--apply-if-pending" in sys.argv:
+        res = apply_pending()
+        if res.get("applied"):
+            print(f"[updater] applied update -> {res.get('version')} "
+                  f"({res.get('files')} files)")
+            # New code is in place; bring its dependencies up to date before the
+            # app starts (cheap no-op unless this release added/changed a dep).
+            refresh_dependencies()
+        elif not res.get("ok"):
+            print(f"[updater] update apply FAILED: {res.get('error')}")
+    elif "--apply-zip" in sys.argv:
+        i = sys.argv.index("--apply-zip")
+        zpath = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
+        res = apply_local_zip(zpath)
+        if res.get("applied"):
+            print(f"[updater] applied update -> {res.get('version')} "
+                  f"({res.get('files')} files)")
+        else:
+            print(f"[updater] update FAILED: {res.get('error')}")
+            sys.exit(1)
+    elif "--pending" in sys.argv:
+        print(pending_version() or "")

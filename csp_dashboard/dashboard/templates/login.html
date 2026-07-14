@@ -1,0 +1,37 @@
+<title>Login - CSP Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="stylesheet" href="/static/vendor/bootstrap.min.css">
+<link rel="stylesheet" href="/static/css/ops.css">
+
+<body class="ops-body">
+<div class="container d-flex justify-content-center align-items-center" style="min-height:100vh">
+  <div class="card" style="width:390px">
+    <div class="card-body p-4">
+      <div class="d-flex justify-content-end mb-2">
+        <button id="langToggle" type="button" class="btn btn-outline-secondary btn-sm" onclick="toggleLang()">हिंदी</button>
+      </div>
+      <div class="text-center mb-4">
+        <div class="ops-kicker" data-i18n="login.kicker">CSP message automation</div>
+        <h4 class="card-title mb-0" data-i18n="login.title">Operator Login</h4>
+      </div>
+      {% with messages = get_flashed_messages() %}
+        {% if messages %}
+          <div class="alert alert-danger py-2">{{ messages[0] }}</div>
+        {% endif %}
+      {% endwith %}
+      <form method="POST" action="/login">
+        <div class="mb-3">
+          <label class="form-label" data-i18n="login.cspid">CSP ID</label>
+          <input type="text" name="csp_id" class="form-control" required autofocus>
+        </div>
+        <div class="mb-3">
+          <label class="form-label" data-i18n="login.password">Password</label>
+          <input type="password" name="password" class="form-control" required>
+        </div>
+        <button type="submit" class="btn btn-primary w-100" data-i18n="login.submit">Login</button>
+      </form>
+    </div>
+  </div>
+</div>
+<script src="/static/js/i18n.js"></script>
+</body>

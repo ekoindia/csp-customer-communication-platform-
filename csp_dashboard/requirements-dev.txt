@@ -1,0 +1,8 @@
+# ── DEV profile — everything the deploy box needs, PLUS test tooling ──────────
+# The CSP deploy machine installs requirements-lite.txt only (no test tooling).
+# Developers run the test suite, so install this instead:
+#
+#   pip install -r requirements-dev.txt
+#
+-r requirements-lite.txt
+pytest==8.2.2

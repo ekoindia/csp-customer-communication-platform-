@@ -1,0 +1,186 @@
+@echo off
+REM ============================================================
+REM   CSP Platform - ONE-CLICK INSTALLER  (installs to C:\CSP_Platform)
+REM
+REM   The CSP double-clicks this ONE file. It:
+REM     1. Copies the software into  C:\CSP_Platform  (a permanent home on the
+REM        C: drive - NOT the Desktop, NOT run from VS Code).
+REM     2. Installs everything needed - Python, Node.js, Tesseract-OCR, and all
+REM        app dependencies - with no manual downloads (uses winget).
+REM     3. Puts a "CSP Platform" icon on the Desktop + Start Menu.
+REM     4. Starts the app.
+REM   From then on the CSP just double-clicks the Desktop icon.
+REM   (A Windows security/UAC prompt may appear during installs - click Yes.)
+REM ============================================================
+setlocal EnableDelayedExpansion
+
+set "INSTALL_DIR=C:\CSP_Platform"
+set "SRC=%~dp0"
+if "%SRC:~-1%"=="\" set "SRC=%SRC:~0,-1%"
+
+REM ---------- 0. Relocate to C:\CSP_Platform (unless already there) ----------
+if /I not "%SRC%"=="%INSTALL_DIR%" (
+    echo ============================================================
+    echo   Installing CSP Platform into  %INSTALL_DIR%
+    echo ============================================================
+    if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+    REM On a RE-RUN over an existing install, preserve the CSP's own settings,
+    REM Eko connection, and PII key so a reinstall never resets the CSP name /
+    REM login / admin link. (On a FRESH install these don't exist yet, so
+    REM KEEPCFG is empty and config.py IS copied in — as it must be.)
+    set "KEEPCFG="
+    if exist "%INSTALL_DIR%\config.py" set "KEEPCFG=config.py .env pii.key"
+    REM Copy the app tree, skipping dev/server-only + machine-specific + secret
+    REM files so the CSP machine gets a clean customer-facing install.
+    robocopy "%SRC%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP ^
+        /XD ".git" ".venv" "node_modules" "__pycache__" ".pytest_cache" "admin_portal" "admin_dashboard" "tests" "scripts" "data" "update" ".wa_session" ^
+        /XF "secret.key" "*.db" "*.pyc" %KEEPCFG% >nul
+    if not exist "%INSTALL_DIR%\uploads" mkdir "%INSTALL_DIR%\uploads"
+    echo Copy complete. Continuing setup inside %INSTALL_DIR% ...
+    echo.
+    call "%INSTALL_DIR%\INSTALL.bat"
+    exit /b %errorlevel%
+)
+
+REM ================= From here we ARE inside C:\CSP_Platform =================
+cd /d "%INSTALL_DIR%"
+echo ============================================================
+echo   CSP Platform - installing dependencies (first run only)
+echo   Location: %INSTALL_DIR%
+echo   Please keep this window open. This can take a few minutes.
+echo ============================================================
+echo.
+
+REM --- winget available? (App Installer, present on current Windows 10/11) ---
+where winget >nul 2>&1
+if errorlevel 1 (
+    echo [!] "winget" was not found on this PC. Please open Microsoft Store,
+    echo     update "App Installer", then run this installer again. (Or install
+    echo     Python 3.11, Node.js LTS and Tesseract-OCR manually once.)
+    echo.
+)
+
+REM ---------- 1. Python 3.11 ----------
+call :ensure_python
+if not defined PY (
+    echo [X] Python could not be set up automatically. Please install Python 3.11
+    echo     from https://www.python.org/downloads/ ^(tick "Add to PATH"^) and re-run.
+    pause & exit /b 1
+)
+echo [OK] Python: %PY%
+
+REM ---------- 2. Tesseract-OCR (reads scanned documents) ----------
+if exist "%ProgramFiles%\Tesseract-OCR\tesseract.exe" goto tess_done
+where tesseract >nul 2>&1 && goto tess_done
+echo Installing Tesseract-OCR ...
+where winget >nul 2>&1 && winget install -e --id UB-Mannheim.TesseractOCR --silent --accept-package-agreements --accept-source-agreements
+:tess_done
+echo [OK] Tesseract step done.
+
+REM ---------- 3. Node.js LTS (WhatsApp sending) ----------
+where node >nul 2>&1 && goto node_done
+echo Installing Node.js LTS ...
+where winget >nul 2>&1 && winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
+set "PATH=!PATH!;%ProgramFiles%\nodejs"
+:node_done
+echo [OK] Node.js step done.
+
+REM ---------- 4. App environment + Python dependencies ----------
+if not exist ".venv\Scripts\python.exe" (
+    echo Creating the app environment ...
+    "%PY%" -m venv .venv
+)
+set "VPY=.venv\Scripts\python.exe"
+echo Installing app dependencies ...
+"%VPY%" -m pip install --upgrade pip
+"%VPY%" -m pip install -r requirements-lite.txt
+if errorlevel 1 (
+    echo [X] Dependency install failed. Check the internet connection and re-run.
+    pause & exit /b 1
+)
+
+REM ---------- 5. WhatsApp bridge dependencies ----------
+where node >nul 2>&1 && (
+    echo Installing WhatsApp bridge dependencies ...
+    pushd whatsapp
+    call npm install
+    popd
+)
+
+REM ---------- 6. Readiness check ----------
+echo.
+echo ------------------------------------------------------------
+"%VPY%" deploy_check.py
+echo ------------------------------------------------------------
+
+REM ---------- 7. Connect to Eko Admin Portal (optional, one-time) ----------
+REM Skipped entirely if .env already exists (a re-run, or Eko pre-baked one
+REM into this package) - never overwrites an existing connection. Only the
+REM CSP ID + API Key are asked here; the admin server address itself is
+REM already correct in config.py (same for every CSP - see config.py's
+REM ADMIN_API_BASE comment), so it is never asked.
+if not exist ".env" (
+    echo.
+    echo ============================================================
+    echo   Optional: connect this install to the Eko Admin Portal
+    echo   ^(Eko will have given you a CSP ID and an API Key^)
+    echo   Press ENTER on both to skip - you can do this later from
+    echo   the dashboard's Settings tab instead.
+    echo ============================================================
+    set "CSPID="
+    set "APIKEY="
+    set /p CSPID="  CSP ID: "
+    set /p APIKEY="  API Key: "
+    if not "!CSPID!"=="" if not "!APIKEY!"=="" (
+        (
+            echo ADMIN_CSP_ID=!CSPID!
+            echo ADMIN_API_KEY=!APIKEY!
+            echo ADMIN_REPORT_ENABLED=1
+        ) > ".env"
+        echo   Saved - this install will report to Eko's admin portal.
+    ) else (
+        echo   Skipped - you can connect later from Settings in the dashboard.
+    )
+)
+
+REM ---------- 8. Desktop + Start-Menu shortcut (the app icon) ----------
+echo Creating the "CSP Platform" app icon ...
+set "ICON=%INSTALL_DIR%\installer\CSP_Platform.ico"
+if not exist "%ICON%" set "ICON=%SystemRoot%\System32\shell32.dll,13"
+powershell -NoProfile -Command ^
+  "$w=New-Object -ComObject WScript.Shell;" ^
+  "$t='%INSTALL_DIR%\run.bat';" ^
+  "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\CSP Platform.lnk', [Environment]::GetFolderPath('Programs')+'\CSP Platform.lnk')){" ^
+  "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
+
+echo.
+echo ============================================================
+echo   Setup complete. The software now lives in:
+echo       %INSTALL_DIR%
+echo   Starting the app now...
+echo.
+echo   FIRST TIME: the app opens a one-time setup screen. There you
+echo   choose your OWN login ID and password, and enter your branch
+echo   details. Your login is also saved to CSP_Login.txt on the Desktop.
+echo.
+echo   From next time, just double-click the "CSP Platform" icon
+echo   on the Desktop to open the software.
+echo ============================================================
+start "" "%INSTALL_DIR%\run.bat"
+echo.
+pause
+exit /b 0
+
+REM ------------------------------------------------------------
+:ensure_python
+REM Accept an already-installed Python ONLY if it is 3.10-3.12 — those are the
+REM versions with matching prebuilt wheels for this project's numpy 2.1 / opencv
+REM 4.10 stack. A wrong version (e.g. 3.9 or 3.13) would force pip to build from
+REM source, which is slow and can OOM the 4 GB box. Otherwise install 3.11.
+python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && ( set "PY=python" & goto :eof )
+echo Installing Python 3.11 ...
+where winget >nul 2>&1 && winget install -e --id Python.Python.3.11 --silent --scope user --accept-package-agreements --accept-source-agreements
+for %%D in ("%LOCALAPPDATA%\Programs\Python\Python311" "%LOCALAPPDATA%\Programs\Python\Python312" "%ProgramFiles%\Python311" "%ProgramFiles%\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
+REM Last resort: accept a pre-existing python only if it is a supported version.
+if not defined PY ( python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && set "PY=python" )
+goto :eof

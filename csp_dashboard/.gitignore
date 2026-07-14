@@ -1,0 +1,53 @@
+# ============================================================
+#  CSP dashboard — public GitHub repo ignore list.
+#  Push THIS folder (csp_dashboard/) as the public repo. The CSP_Setup.bat
+#  downloads the repo zipball, so the repo IS the install source (no separate
+#  zip to build/share). Everything below must NEVER be committed/published.
+# ============================================================
+
+# Python / env
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+env/
+
+# Local secrets/config — NEVER commit (see .env.example for the template)
+.env
+secret.key
+**/secret.key
+pii.key
+**/pii.key
+
+# Local database (empty DB is created on first run) — never commit
+*.db
+*.db-wal
+*.db-shm
+database/csp_platform.db*
+
+# Customer data — DPDP: must never leave the CSP PC / never publish
+data/
+uploads/*
+!uploads/.gitkeep
+database/cases/
+
+# Build artifact (we no longer ship a hand-built zip — GitHub is the source)
+CSP_Platform.zip
+# Local demo/setup files with a machine-specific APP_URL, and run logs
+CSP_Setup_DEMO.bat
+*.log
+
+# WhatsApp session (an authenticated WhatsApp login) + node deps
+whatsapp/.wa_session/
+whatsapp/node_modules/
+
+# Self-updater staging + machine-specific
+update/
+DxDiag.txt
+
+# OS / editor / test artifacts
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+.pytest_cache/
