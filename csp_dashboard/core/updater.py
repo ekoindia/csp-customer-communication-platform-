@@ -30,7 +30,12 @@ import zipfile
 from urllib.request import urlopen
 
 APP_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-UPDATE_DIR = os.path.join(APP_ROOT, "update")
+# Update working files (download, staging, pending marker) live OUTSIDE the
+# install folder so C:\CSP_Platform only ever contains the app itself — no
+# update clutter. A stable per-user dir (survives reboots, so a staged-but-not-
+# yet-applied update isn't lost); falls back to the OS temp dir.
+_UPDATE_BASE = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
+UPDATE_DIR = os.path.join(_UPDATE_BASE, "CSP_Platform", "update")
 STAGING = os.path.join(UPDATE_DIR, "staged")
 PENDING = os.path.join(UPDATE_DIR, "pending.json")
 
