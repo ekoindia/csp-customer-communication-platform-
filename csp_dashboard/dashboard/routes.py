@@ -156,8 +156,10 @@ def login():
             session["user_id"] = user["id"]
             update_last_login(csp_id)
             insert_audit_log(user["id"], "login")
-            if _admin_setup_needed():
-                return redirect(url_for("dashboard.admin_connect"))
+            # The Eko Admin connection is provisioned by Eko (CSP_ID + API_KEY
+            # baked into .env by the per-CSP setup) and controlled ONLY from the
+            # admin portal — the CSP is never asked to set it up and cannot
+            # disable it, so there is no admin-connect step in the CSP flow.
             return redirect(url_for("dashboard.welcome"))
 
         auth.record_failure(csp_id)
@@ -175,62 +177,19 @@ def logout():
     return redirect(url_for("dashboard.login"))
 
 
-# ── First-run: connect this install to the Eko Admin Portal ──────────────────
-# Shown ONCE, right after the very first successful login (see login() above).
-# Asks for the CSP ID + API key the admin issued for this install; "Skip for
-# now" is always available so the local dashboard works standalone even
-# without admin connectivity (matches ADMIN_REPORT_ENABLED defaulting off).
+# ── Eko Admin connection — provisioned by Eko, NOT configurable by the CSP ────
+# The CSP_ID + API key are baked into .env by the admin's per-CSP setup file, and
+# the connection is enabled/disabled ONLY from the Eko admin portal (the API Keys
+# page). The CSP has no way to set it up, change it, skip it, or disable it — so
+# this old self-service screen is retired and simply sends the operator back to
+# the dashboard. Reporting is driven purely by the baked .env at startup.
 
 @dashboard_bp.route("/admin-connect", methods=["GET", "POST"])
 def admin_connect():
     guard = _login_required()
     if guard:
         return guard
-
-    if request.method == "POST":
-        action = request.form.get("action")
-        if action == "skip":
-            set_config_value(_ADMIN_SETUP_FLAG, "1")
-            insert_audit_log(session["user_id"], "admin_connect_skipped")
-            return redirect(url_for("dashboard.welcome"))
-
-        csp_id = request.form.get("csp_id", "").strip()
-        api_key = request.form.get("api_key", "").strip()
-        # The admin server address is NOT taken from the form — it is the value
-        # baked into this build (same for every CSP), so the real RAG-server URL
-        # is never exposed to or editable by the CSP. It's used as-is.
-        api_base = config.ADMIN_API_BASE
-        if not csp_id or not api_key:
-            flash("CSP ID and API key are both required (or use Skip for now).")
-            return render_template("admin_connect.html", config=config)
-
-        from core import env_writer, admin_reporter
-        env_writer.write_values({
-            "ADMIN_CSP_ID": csp_id,
-            "ADMIN_API_KEY": api_key,
-            "ADMIN_API_BASE": api_base,
-            "ADMIN_REPORT_ENABLED": "1",
-        })
-        # Apply immediately (no restart needed) — admin_reporter reads these
-        # config attributes at call time, and start_background() only
-        # schedules its loop once ADMIN_REPORT_ENABLED is true.
-        config.ADMIN_CSP_ID = csp_id
-        config.ADMIN_API_KEY = api_key
-        config.ADMIN_API_BASE = api_base
-        config.ADMIN_REPORT_ENABLED = True
-        admin_reporter.start_background()
-
-        result = admin_reporter.report_once()
-        set_config_value(_ADMIN_SETUP_FLAG, "1")
-        insert_audit_log(session["user_id"], "admin_connect_saved", f"csp_id={csp_id}")
-        if result.get("ok"):
-            flash("Connected to the Eko Admin Portal.")
-        else:
-            flash("Saved — will keep retrying in the background "
-                 f"(first attempt: {result.get('error') or 'no response'}).")
-        return redirect(url_for("dashboard.welcome"))
-
-    return render_template("admin_connect.html", config=config)
+    return redirect(url_for("dashboard.welcome"))
 
 
 @dashboard_bp.route("/audit", methods=["GET"])

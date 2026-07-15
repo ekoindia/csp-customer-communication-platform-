@@ -67,3 +67,6 @@ Thumbs.db
 
 # Claude Code local dev config (not project code)
 .claude/
+
+# Model rollback backups (local only)
+**/*.onnx.bak
