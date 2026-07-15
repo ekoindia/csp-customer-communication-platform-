@@ -325,16 +325,10 @@ def download_csp_setup_bat():
     installer runs, so INSTALL.bat's own connect prompt never fires. This is
     the "one single file, nothing else to send" path: the CSP gets ONE
     attachment and it is fully self-contained, no separate key message."""
+    csp_id = request.args.get("csp_id", "").strip()
+    key_row = None
+    download_url = None
     with get_connection() as conn:
-        latest = conn.execute(
-            "SELECT * FROM releases WHERE kind='install' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        if not latest:
-            flash("Upload an install package first.")
-            return redirect(url_for("admin_ui.setup_files"))
-
-        csp_id = request.args.get("csp_id", "").strip()
-        key_row = None
         if csp_id:
             key_row = conn.execute(
                 "SELECT api_key FROM api_keys WHERE csp_id=? AND active=1", (csp_id,)
@@ -342,9 +336,16 @@ def download_csp_setup_bat():
             if not key_row:
                 flash(f"No active API key for {csp_id} — issue one on the API Keys page first.")
                 return redirect(url_for("admin_ui.api_keys"))
+        # An uploaded install package is OPTIONAL: by default CSP_Setup.bat already
+        # points APP_URL at the public GitHub repo, so no upload is needed. Only if
+        # you deliberately self-host a package here do we override APP_URL with it.
+        latest = conn.execute(
+            "SELECT * FROM releases WHERE kind='install' ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        if latest:
+            download_url = url_for("admin_ui.download_release", release_id=latest["id"],
+                                   filename=latest["filename"], _external=True)
 
-    download_url = url_for("admin_ui.download_release", release_id=latest["id"],
-                           filename=latest["filename"], _external=True)
     template_path = os.path.join(os.path.dirname(_DIR), "csp_dashboard", "CSP_Setup.bat")
     try:
         with open(template_path, "r", encoding="utf-8") as f:
@@ -352,10 +353,10 @@ def download_csp_setup_bat():
     except OSError:
         return ("CSP_Setup.bat template not found on the server.", 500)
 
-    content, n = re.subn(r'set "APP_URL=.*?"', f'set "APP_URL={download_url}"',
+    # Keep the GitHub APP_URL from the template; override only if self-hosted.
+    if download_url:
+        content = re.sub(r'set "APP_URL=.*?"', f'set "APP_URL={download_url}"',
                          content, count=1)
-    if n == 0:
-        return ("CSP_Setup.bat template is missing its APP_URL line.", 500)
 
     out_name = "CSP_Setup.bat"
     if key_row:
