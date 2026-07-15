@@ -25,45 +25,41 @@ WA_TEMPLATES = {
         # normal: bands 0.1<100, 100<1000
         "template_1": (
             "Hello {name},\n\n"
-            "Our records indicate that your SBI bank account has remained "
-            "inactive for a long time. To reactivate your account, kindly visit "
-            "your nearest SBI CSP branch.\n\n"
-            "If this message does not concern you, please ignore it.\n\n"
-            "Branch:\n{csp_name}\n\n"
-            "Address:\n{branch_address}\n\n"
+            "Your SBI bank account has been inactive for a long time. Please "
+            "visit the SBI CSP branch shown below to reactivate it.\n\n"
+            "If this message is not for you, please ignore it.\n\n"
+            "Branch: {csp_name}\n"
+            "Address: {branch_address}\n\n"
             "Thank you,\n{csp_name}"
         ),
         # urgent: bands 1000<10000, B>10000
         "template_3": (
             "Hello {name},\n\n"
-            "Our records indicate that your SBI bank account has remained "
-            "inactive for a long time. Kindly visit your SBI CSP branch at the "
-            "earliest to complete the required process.\n\n"
-            "If this message does not concern you, please ignore it.\n\n"
-            "Branch:\n{csp_name}\n\n"
-            "Address:\n{branch_address}\n\n"
+            "Your SBI bank account has been inactive for a long time. Please "
+            "visit the SBI CSP branch shown below soon to fix it.\n\n"
+            "If this message is not for you, please ignore it.\n\n"
+            "Branch: {csp_name}\n"
+            "Address: {branch_address}\n\n"
             "Thank you,\n{csp_name}"
         ),
     },
     "hi": {
         "template_1": (
             "नमस्ते {name} जी,\n\n"
-            "हमारे रिकॉर्ड के अनुसार आपके SBI बैंक खाते में काफी समय से कोई "
-            "लेन-देन नहीं हुआ है। अपना खाता पुनः सक्रिय करवाने के लिए कृपया अपने "
-            "नज़दीकी SBI CSP शाखा पर आएँ।\n\n"
-            "यदि यह संदेश आपसे संबंधित नहीं है, तो कृपया इसे अनदेखा करें।\n\n"
-            "शाखा:\n{csp_name}\n\n"
-            "पता:\n{branch_address}\n\n"
+            "आपका SBI बैंक खाता काफी समय से बंद है। इसे दोबारा चालू करवाने के "
+            "लिए कृपया नीचे दी गई SBI CSP शाखा पर आएँ।\n\n"
+            "अगर यह संदेश आपके लिए नहीं है, तो ध्यान न दें।\n\n"
+            "शाखा: {csp_name}\n"
+            "पता: {branch_address}\n\n"
             "धन्यवाद,\n{csp_name}"
         ),
         "template_3": (
             "नमस्ते {name} जी,\n\n"
-            "हमारे रिकॉर्ड के अनुसार आपका SBI बैंक खाता काफी समय से निष्क्रिय है। "
-            "आवश्यक प्रक्रिया पूरी करने के लिए कृपया जल्द से जल्द अपने SBI CSP "
-            "शाखा पर आएँ।\n\n"
-            "यदि यह संदेश आपसे संबंधित नहीं है, तो कृपया इसे अनदेखा करें।\n\n"
-            "शाखा:\n{csp_name}\n\n"
-            "पता:\n{branch_address}\n\n"
+            "आपका SBI बैंक खाता काफी समय से बंद है। कृपया जल्द से जल्द नीचे दी गई "
+            "SBI CSP शाखा पर आकर इसे ठीक करवाएँ।\n\n"
+            "अगर यह संदेश आपके लिए नहीं है, तो ध्यान न दें।\n\n"
+            "शाखा: {csp_name}\n"
+            "पता: {branch_address}\n\n"
             "धन्यवाद,\n{csp_name}"
         ),
     },
@@ -75,9 +71,8 @@ WA_TEMPLATES = {
 # Unicode DLT template). WhatsApp can be Hindi; SMS is a fallback only (MSG91,
 # triggered when WhatsApp fails) so it stays lean and Roman-script.
 SMS_TEMPLATE = (
-    "Hello {name}, our records indicate that your SBI account is inactive. "
-    "Kindly visit {csp_name} (SBI CSP). If not you, please ignore."
-    "\n\nAddress: {branch_address}"
+    "Hello {name}, your SBI account is inactive. Please visit {csp_name} "
+    "(SBI CSP). If not you, ignore. Address: {branch_address}"
 )
 
 
@@ -106,26 +101,26 @@ WABA_PARAM_ORDER = ["customer_name", "csp_branch_name", "branch_address"]
 WABA_TEMPLATES = [
     {"name": "account_inoperative_normal_en", "category": "UTILITY", "language": "en",
      "template_id": "template_1",
-     "body": ("Hello {{1}},\n\nOur records indicate that your SBI bank account has "
-              "remained inactive for a long time. To reactivate your account, kindly "
-              "visit your nearest SBI CSP branch.\n\nIf this message does not concern "
-              "you, please ignore it.\n\nBranch:\n{{2}}\n\nAddress:\n{{3}}"
-              "\n\nThank you,\n{{2}}")},
+     "body": ("Hello {{1}},\n\nYour SBI bank account has been inactive for a long "
+              "time. Please visit the SBI CSP branch shown below to reactivate it.\n\n"
+              "If this message is not for you, please ignore it.\n\n"
+              "Branch: {{2}}\nAddress: {{3}}\n\nThank you,\n{{2}}")},
     {"name": "account_inoperative_urgent_en", "category": "UTILITY", "language": "en",
      "template_id": "template_3",
-     "body": ("Hello {{1}},\n\nOur records indicate that your SBI bank account has "
-              "remained inactive for a long time. Kindly visit your SBI CSP branch at "
-              "the earliest to complete the required process.\n\nIf this message does "
-              "not concern you, please ignore it.\n\nBranch:\n{{2}}\n\n"
-              "Address:\n{{3}}\n\nThank you,\n{{2}}")},
+     "body": ("Hello {{1}},\n\nYour SBI bank account has been inactive for a long "
+              "time. Please visit the SBI CSP branch shown below soon to fix it.\n\n"
+              "If this message is not for you, please ignore it.\n\n"
+              "Branch: {{2}}\nAddress: {{3}}\n\nThank you,\n{{2}}")},
     {"name": "account_inoperative_normal_hi", "category": "UTILITY", "language": "hi",
      "template_id": "template_1",
-     "body": ("नमस्ते {{1}} जी,\n\nहमारे रिकॉर्ड के अनुसार आपके SBI बैंक खाते में काफी समय "
-              "से कोई लेन-देन नहीं हुआ है। अपना खाता पुनः सक्रिय करवाने के लिए कृपया अपने "
-              "नज़दीकी SBI CSP शाखा पर आएँ।\n\nशाखा:\n{{2}}\n\nपता:\n{{3}}\n\nधन्यवाद,\n{{2}}")},
+     "body": ("नमस्ते {{1}} जी,\n\nआपका SBI बैंक खाता काफी समय से बंद है। इसे दोबारा "
+              "चालू करवाने के लिए कृपया नीचे दी गई SBI CSP शाखा पर आएँ।\n\n"
+              "अगर यह संदेश आपके लिए नहीं है, तो ध्यान न दें।\n\n"
+              "शाखा: {{2}}\nपता: {{3}}\n\nधन्यवाद,\n{{2}}")},
     {"name": "account_inoperative_urgent_hi", "category": "UTILITY", "language": "hi",
      "template_id": "template_3",
-     "body": ("नमस्ते {{1}} जी,\n\nहमारे रिकॉर्ड के अनुसार आपका SBI बैंक खाता काफी समय से "
-              "निष्क्रिय है। आवश्यक प्रक्रिया पूरी करने के लिए कृपया जल्द से जल्द अपने SBI CSP "
-              "शाखा पर आएँ।\n\nशाखा:\n{{2}}\n\nपता:\n{{3}}\n\nधन्यवाद,\n{{2}}")},
+     "body": ("नमस्ते {{1}} जी,\n\nआपका SBI बैंक खाता काफी समय से बंद है। कृपया जल्द से "
+              "जल्द नीचे दी गई SBI CSP शाखा पर आकर इसे ठीक करवाएँ।\n\n"
+              "अगर यह संदेश आपके लिए नहीं है, तो ध्यान न दें।\n\n"
+              "शाखा: {{2}}\nपता: {{3}}\n\nधन्यवाद,\n{{2}}")},
 ]
