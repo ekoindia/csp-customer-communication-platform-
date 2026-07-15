@@ -2,40 +2,40 @@
 {% block title %}New CSP Setup - Eko Admin Portal{% endblock %}
 {% block body %}
 <h1>New CSP setup</h1>
-<p class="sub">Upload the install package once (build it with MAKE_ZIP.ps1). This
-  page then hosts it at a public download link and can hand out a ready
-  CSP_Setup.bat for any new CSP — nothing to edit by hand per install.</p>
+<p class="sub">The app installs straight from the public GitHub repo — you do NOT
+  need to upload anything here. To onboard a CSP, just issue their key and
+  download their ready-to-send setup file from the API Keys page.</p>
 
 <div class="panel">
-  <h2>Current install package</h2>
+  <h2>Onboard a new CSP — 3 steps</h2>
+  <div class="kv">
+    <div class="k">1</div><div>Go to <a href="{{ url_for('admin_ui.api_keys') }}" style="color:var(--accent)">API Keys</a> → enter the CSP's code → <b>Issue</b>.</div>
+    <div class="k">2</div><div>On that CSP's row, click <b>Download CSP_Setup.bat</b> — it already has the GitHub link + CSP ID + API key baked in.</div>
+    <div class="k">3</div><div>Send that ONE file to the CSP. They double-click it → everything installs into <code>C:\CSP_Platform</code> → they set their own login + branch on first run.</div>
+  </div>
+  <p class="note">No zip to build, no package to upload, no key to send separately.</p>
+</div>
+
+<div class="panel">
+  <h2>Optional: self-host the install package</h2>
+  <p class="note" style="margin-top:0">Only if you want the app served from THIS
+    server instead of GitHub (e.g. an air-gapped setup). Normally leave this empty —
+    the setup file already points at GitHub.</p>
   {% if latest %}
   <div class="kv">
     <div class="k">File</div><div>{{ latest.filename }}{% if latest.version %} &middot; v{{ latest.version }}{% endif %}</div>
     <div class="k">Size</div><div>{{ (latest.size_bytes / 1024)|round(1) }} KB</div>
-    <div class="k">SHA-256</div><div style="font-size:12px;word-break:break-all">{{ latest.sha256 }}</div>
-    <div class="k">Uploaded</div><div>{{ latest.uploaded_at }} UTC</div>
+    <div class="k">Uploaded</div><div>{{ latest.uploaded_at | ist }}</div>
   </div>
-  <div style="margin-top:14px;display:flex;gap:10px;flex-wrap:wrap">
-    <a href="{{ download_url }}" style="width:auto;padding:9px 16px;background:var(--panel);border:1px solid var(--line);border-radius:8px;color:var(--ink);text-decoration:none">Download CSP_Platform.zip</a>
-    <a href="{{ url_for('admin_ui.download_csp_setup_bat') }}" style="width:auto;padding:9px 16px;background:var(--accent);border-radius:8px;color:#1a1200;text-decoration:none;font-weight:700">Download ready CSP_Setup.bat</a>
-  </div>
-  <p class="note">Send the CSP_Setup.bat above to any new CSP — it already points at this package. Double-click installs everything into C:\CSP_Platform.</p>
-  {% else %}
-  <p style="color:var(--muted);margin:0">No install package uploaded yet.</p>
   {% endif %}
-</div>
-
-<div class="panel">
-  <h2>Upload a new install package</h2>
-  <form method="post" enctype="multipart/form-data" style="max-width:520px">
+  <form method="post" enctype="multipart/form-data" style="max-width:520px;margin-top:12px">
     <label class="l" style="color:var(--soft)">Version (e.g. 1.0.0)</label>
     <input name="version" placeholder="1.0.0">
-    <label class="l" style="color:var(--soft)">CSP_Platform.zip</label>
+    <label class="l" style="color:var(--soft)">CSP_Platform.zip (built with MAKE_ZIP.ps1)</label>
     <input type="file" name="package" accept=".zip" required
            style="width:100%;padding:9px 11px;margin:6px 0 12px;background:#0f1723;border:1px solid var(--line);border-radius:8px;color:var(--ink)">
-    <button type="submit">Upload</button>
+    <button type="submit">Upload (optional)</button>
   </form>
-  <p class="note">sha256 is computed automatically — nothing to paste by hand.</p>
 </div>
 
 {% if history %}
@@ -46,7 +46,7 @@
     <tbody>
     {% for r in history %}
       <tr><td>{{ r.filename }}</td><td>{{ r.version or '-' }}</td>
-        <td>{{ (r.size_bytes / 1024)|round(1) }} KB</td><td>{{ r.uploaded_at }}</td></tr>
+        <td>{{ (r.size_bytes / 1024)|round(1) }} KB</td><td>{{ r.uploaded_at | ist }}</td></tr>
     {% endfor %}
     </tbody>
   </table>
