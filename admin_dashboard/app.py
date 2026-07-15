@@ -45,6 +45,24 @@ app.register_blueprint(api_bp)
 app.register_blueprint(ui_bp)
 
 
+# Timestamps are STORED in UTC (see routes._now); show them to the admin in IST.
+from datetime import datetime as _dt, timezone as _tz, timedelta as _td  # noqa: E402
+_IST = _tz(_td(hours=5, minutes=30))
+
+
+@app.template_filter("ist")
+def _ist_filter(value):
+    if not value:
+        return "-"
+    try:
+        d = _dt.fromisoformat(str(value))
+    except ValueError:
+        return str(value)
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=_tz.utc)
+    return d.astimezone(_IST).strftime("%d %b %Y, %I:%M %p") + " IST"
+
+
 class _ProxyPrefixMiddleware:
     """Lets this app be reverse-proxied under a path prefix (e.g. nginx routes
     /csp-admin/ here, alongside OTHER unrelated dashboards on the same shared
