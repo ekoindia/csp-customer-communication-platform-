@@ -23,8 +23,12 @@ fi
 sleep 1
 
 echo "Starting admin portal (admin_dashboard.app) on 127.0.0.1:$PORT ..."
-nohup "$PY" -m admin_dashboard.app > admin_dashboard/_run.log 2>&1 &
-sleep 2
+# setsid + </dev/null fully detaches the server into its OWN session, so it
+# SURVIVES the SSH session closing (a plain `nohup ... &` launched over SSH gets
+# killed when the channel closes — that caused a 502 after deploys). nohup too,
+# belt-and-suspenders.
+setsid nohup "$PY" -m admin_dashboard.app < /dev/null > admin_dashboard/_run.log 2>&1 &
+sleep 3
 
 if lsof -ti:"$PORT" >/dev/null 2>&1 || curl -s -o /dev/null "http://127.0.0.1:$PORT/login"; then
     echo "OK - admin portal is up on 127.0.0.1:$PORT"
