@@ -22,6 +22,10 @@ def setup():
     with get_connection() as conn:
         with open(SCHEMA, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
+        # Forward-migration: admin.db created before the dxdiag column existed.
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(csps)")}
+        if "dxdiag" not in cols:
+            conn.execute("ALTER TABLE csps ADD COLUMN dxdiag TEXT")
         # Seed a default admin login so the portal is usable out of the box
         # (change this password for a real deployment). Deliberately NO demo
         # API key is seeded — a real, working credential should never ship by

@@ -180,6 +180,42 @@ def _hardware() -> dict:
     return out
 
 
+def _dxdiag() -> str:
+    """Full Windows DxDiag system report of the CSP MACHINE (drivers, hardware,
+    OS) — operational machine info, NOT customer data. dxdiag is slow (~15-30s),
+    so capture it ONCE, cache it next to the DB, and reuse the cached text on
+    every later report. Never raises; returns "" if unavailable (e.g. non-Windows)."""
+    import os as _os
+    cache = _os.path.join(_os.path.dirname(_os.path.abspath(config.DB_PATH)), "dxdiag.txt")
+    try:
+        if _os.path.isfile(cache) and _os.path.getsize(cache) > 0:
+            with open(cache, "r", encoding="utf-8", errors="replace") as f:
+                return f.read()[:80000]
+        import subprocess
+        import tempfile
+        import time
+        tmp = _os.path.join(tempfile.gettempdir(), "csp_dxdiag.txt")
+        subprocess.run(["dxdiag", "/t", tmp], timeout=120, check=False)
+        for _ in range(20):                       # dxdiag writes the file async-ish
+            if _os.path.isfile(tmp) and _os.path.getsize(tmp) > 0:
+                break
+            time.sleep(0.5)
+        if _os.path.isfile(tmp):
+            with open(tmp, "r", encoding="utf-8", errors="replace") as f:
+                txt = f.read()
+            _os.makedirs(_os.path.dirname(cache), exist_ok=True)
+            with open(cache, "w", encoding="utf-8") as f:
+                f.write(txt)
+            try:
+                _os.remove(tmp)
+            except Exception:
+                pass
+            return txt[:80000]
+    except Exception:
+        pass
+    return ""
+
+
 def _whatsapp_status() -> dict:
     """Best-effort WhatsApp connected/banned flags (never raises)."""
     status = {"connected": False, "banned": False}
@@ -206,6 +242,7 @@ def build_payload() -> dict:
         "month": _month(),
         "whatsapp": _whatsapp_status(),
         "hardware": _hardware(),
+        "dxdiag": _dxdiag(),              # full machine system report (machine, not PII)
         "campaigns": _campaigns(),        # full message + visit tracking, per campaign
         "audit": _audit_types(),
     }

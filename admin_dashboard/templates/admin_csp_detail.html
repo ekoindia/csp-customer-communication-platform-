@@ -21,6 +21,15 @@
     <div class="k">OCR engine</div><div>{{ c.ocr_engine or '-' }}{% if c.ocr_engine == 'tesseract' %} (low-RAM profile, no PyTorch){% endif %}</div>
     <div class="k">Install ID</div><div>{{ c.install_id or c.csp_id }}</div>
   </div>
+  {% if c.dxdiag %}
+  <details style="margin-top:14px">
+    <summary style="cursor:pointer;color:var(--accent);font-weight:600">Full DxDiag system report</summary>
+    <pre style="max-height:420px;overflow:auto;background:#0f1723;border:1px solid var(--line);
+                border-radius:8px;padding:12px;font-size:12px;white-space:pre-wrap;margin-top:10px">{{ c.dxdiag }}</pre>
+  </details>
+  {% else %}
+  <div class="note" style="margin-top:10px">DxDiag report not received yet (arrives on the CSP's next report).</div>
+  {% endif %}
 </div>
 
 {% for p in progress %}
