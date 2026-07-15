@@ -950,16 +950,24 @@ def _extract_grid_lines(gray_np: np.ndarray, on_row=None):
     for ci in range(ncols):
         for ri in range(sample):
             d = onnx_digits(ri, ci)
-            if 10 <= len(d) <= 16:
+            # Account numbers on this bank form are 11+ digits. A 10-digit value
+            # is a MOBILE, not an account — counting 10 here let the mobile column
+            # win 'account', producing account==mobile with blank names (the whole
+            # row's columns then keyed off the wrong anchor). Require >= 11.
+            if len(d) >= 11:
                 acc_s[ci] += 1
             if _valid_mobile(d):
                 mob_s[ci] += 1
             if _BAND_RE.search(text_cell(ri, ci)):
                 band_s[ci] += 1
-    account_col = max(range(ncols), key=lambda c: acc_s[c])
-    if acc_s[account_col] == 0:
-        return None
     mobile_col = max(range(ncols), key=lambda c: mob_s[c]) if max(mob_s) else None
+    account_col = max(range(ncols), key=lambda c: acc_s[c])
+    # Never let account and mobile resolve to the SAME column.
+    if account_col == mobile_col or acc_s[account_col] == 0:
+        cands = [c for c in range(ncols) if c != mobile_col and acc_s[c] > 0]
+        if not cands:
+            return None
+        account_col = max(cands, key=lambda c: acc_s[c])
     bal_col = max(range(ncols), key=lambda c: band_s[c]) if max(band_s) else None
 
     # Name = most-alphabetic column between account and band; FALL BACK to the
@@ -974,18 +982,38 @@ def _extract_grid_lines(gray_np: np.ndarray, on_row=None):
     if name_col is None and account_col + 1 < ncols:
         name_col = account_col + 1
 
+    # Village (TEXT) sits to the RIGHT of mobile in the layout
+    # ...|mobile|taluka|village|address. Taluka repeats across rows and the
+    # address cell is long/multi-word; the village is a SHORT place name that
+    # VARIES per row. So among the trailing text columns, pick the one with the
+    # most DISTINCT short (<=3-word) alphabetic values after village-cleaning.
+    village_col, v_best = None, 0
+    if mob_col is not None:
+        for c in range(mob_col + 1, ncols):
+            vals = []
+            for ri in range(sample):
+                raw = text_cell(ri, c)
+                if len(raw.split()) > 3:        # address-like column -> skip
+                    continue
+                t = _clean_village(raw)
+                if t:
+                    vals.append(t)
+            score = len(set(vals))
+            if score > v_best:
+                v_best, village_col = score, c
+
     rows = []
     for ri in range(nrows):
         if on_row:
             on_row(ri, nrows)                 # real per-row progress
         account = onnx_digits(ri, account_col)
-        if not (10 <= len(account) <= 16):    # model unsure -> Tesseract digit re-read
+        if not (11 <= len(account) <= 16):    # model unsure -> Tesseract digit re-read
             alt = _clean_digits(_ocr_cell(gray_np, ys[ri], ys[ri + 1],
                                           xs[account_col], xs[account_col + 1],
                                           whitelist="0123456789"))
-            if 10 <= len(alt) <= 16:
+            if 11 <= len(alt) <= 16:
                 account = alt
-        if not (10 <= len(account) <= 16):
+        if not (11 <= len(account) <= 16):
             continue                          # header / blank band
         mobile = ""
         if mobile_col is not None:
@@ -996,11 +1024,12 @@ def _extract_grid_lines(gray_np: np.ndarray, on_row=None):
             s = _clean_text_cell(text_cell(ri, name_col)).upper()
             if s and not _BAND_RE.search(s) and not _valid_mobile(s) and len(_clean_digits(s)) < 5:
                 name = s
+        village = _clean_village(text_cell(ri, village_col)) if village_col is not None else ""
         rows.append({
             "account_number": account, "name": name,
             "balance_band": bm.group(0).replace(" ", "") if bm else "",
             "father_name": "", "mobile": mobile,
-            "taluka": "", "village": "", "address": "", "_raw": "",
+            "taluka": "", "village": village, "address": "", "_raw": "",
         })
     return rows or None
 

@@ -28,6 +28,7 @@ WA_TEMPLATES = {
             "Our records indicate that your SBI bank account has remained "
             "inactive for a long time. To reactivate your account, kindly visit "
             "your nearest SBI CSP branch.\n\n"
+            "If this message does not concern you, please ignore it.\n\n"
             "Branch:\n{csp_name}\n\n"
             "Address:\n{branch_address}\n\n"
             "Thank you,\n{csp_name}"
@@ -38,6 +39,7 @@ WA_TEMPLATES = {
             "Our records indicate that your SBI bank account has remained "
             "inactive for a long time. Kindly visit your SBI CSP branch at the "
             "earliest to complete the required process.\n\n"
+            "If this message does not concern you, please ignore it.\n\n"
             "Branch:\n{csp_name}\n\n"
             "Address:\n{branch_address}\n\n"
             "Thank you,\n{csp_name}"
@@ -49,6 +51,7 @@ WA_TEMPLATES = {
             "हमारे रिकॉर्ड के अनुसार आपके SBI बैंक खाते में काफी समय से कोई "
             "लेन-देन नहीं हुआ है। अपना खाता पुनः सक्रिय करवाने के लिए कृपया अपने "
             "नज़दीकी SBI CSP शाखा पर आएँ।\n\n"
+            "यदि यह संदेश आपसे संबंधित नहीं है, तो कृपया इसे अनदेखा करें।\n\n"
             "शाखा:\n{csp_name}\n\n"
             "पता:\n{branch_address}\n\n"
             "धन्यवाद,\n{csp_name}"
@@ -58,6 +61,7 @@ WA_TEMPLATES = {
             "हमारे रिकॉर्ड के अनुसार आपका SBI बैंक खाता काफी समय से निष्क्रिय है। "
             "आवश्यक प्रक्रिया पूरी करने के लिए कृपया जल्द से जल्द अपने SBI CSP "
             "शाखा पर आएँ।\n\n"
+            "यदि यह संदेश आपसे संबंधित नहीं है, तो कृपया इसे अनदेखा करें।\n\n"
             "शाखा:\n{csp_name}\n\n"
             "पता:\n{branch_address}\n\n"
             "धन्यवाद,\n{csp_name}"
@@ -72,7 +76,8 @@ WA_TEMPLATES = {
 # triggered when WhatsApp fails) so it stays lean and Roman-script.
 SMS_TEMPLATE = (
     "Hello {name}, our records indicate that your SBI account is inactive. "
-    "Kindly visit {csp_name} (SBI CSP).\n\nAddress: {branch_address}"
+    "Kindly visit {csp_name} (SBI CSP). If not you, please ignore."
+    "\n\nAddress: {branch_address}"
 )
 
 
@@ -103,13 +108,15 @@ WABA_TEMPLATES = [
      "template_id": "template_1",
      "body": ("Hello {{1}},\n\nOur records indicate that your SBI bank account has "
               "remained inactive for a long time. To reactivate your account, kindly "
-              "visit your nearest SBI CSP branch.\n\nBranch:\n{{2}}\n\nAddress:\n{{3}}"
+              "visit your nearest SBI CSP branch.\n\nIf this message does not concern "
+              "you, please ignore it.\n\nBranch:\n{{2}}\n\nAddress:\n{{3}}"
               "\n\nThank you,\n{{2}}")},
     {"name": "account_inoperative_urgent_en", "category": "UTILITY", "language": "en",
      "template_id": "template_3",
      "body": ("Hello {{1}},\n\nOur records indicate that your SBI bank account has "
               "remained inactive for a long time. Kindly visit your SBI CSP branch at "
-              "the earliest to complete the required process.\n\nBranch:\n{{2}}\n\n"
+              "the earliest to complete the required process.\n\nIf this message does "
+              "not concern you, please ignore it.\n\nBranch:\n{{2}}\n\n"
               "Address:\n{{3}}\n\nThank you,\n{{2}}")},
     {"name": "account_inoperative_normal_hi", "category": "UTILITY", "language": "hi",
      "template_id": "template_1",

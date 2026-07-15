@@ -95,11 +95,8 @@
                 <th style="min-width:150px">Account no.</th>
                 <th style="min-width:150px">Name</th>
                 <th style="min-width:110px">Balance</th>
-                <th style="min-width:140px">Father name</th>
                 <th style="min-width:120px">Mobile</th>
-                <th style="min-width:110px">Taluka</th>
                 <th style="min-width:100px">Village</th>
-                <th style="min-width:200px">Address</th>
                 <th style="min-width:96px">Status</th>
                 <th style="width:34px"></th>
               </tr>
@@ -131,11 +128,8 @@ function rowHtml(r, idx) {
     <td><input class="form-control form-control-sm f-account" value="${esc(r.account_number)}"></td>
     <td><input class="form-control form-control-sm f-name" value="${esc(r.name)}"></td>
     <td><input class="form-control form-control-sm f-band" value="${esc(r.balance_band)}" placeholder="e.g. 100<1000"></td>
-    <td><input class="form-control form-control-sm f-father" value="${esc(r.father_name)}"></td>
     <td><input class="form-control form-control-sm f-mobile" value="${esc(r.mobile)}"></td>
-    <td><input class="form-control form-control-sm f-taluka" value="${esc(r.taluka)}"></td>
     <td><input class="form-control form-control-sm f-village" value="${esc(r.village)}"></td>
-    <td><input class="form-control form-control-sm f-address" value="${esc(r.address)}"></td>
     <td class="status-cell"></td>
     <td><button class="btn btn-sm btn-link text-danger p-0" onclick="deleteRow(this)">✕</button></td>
   </tr>`;
@@ -153,8 +147,7 @@ function render() {
 // ── Left "source" panel + zoom (compare view, all input types) ──
 const SRC_COLS = [
   ["account_number", "Account no."], ["name", "Name"], ["balance_band", "Balance"],
-  ["father_name", "Father name"], ["mobile", "Mobile"], ["taluka", "Taluka"],
-  ["village", "Village"], ["address", "Address"],
+  ["mobile", "Mobile"], ["village", "Village"],
 ];
 
 function renderSource() {
@@ -187,8 +180,7 @@ function addRow() {
   const body = document.getElementById("rowsBody");
   const idx = body.children.length;
   body.insertAdjacentHTML("beforeend", rowHtml(
-    {account_number:"",name:"",balance_band:"",father_name:"",mobile:"",
-     taluka:"",village:"",address:""}, idx));
+    {account_number:"",name:"",balance_band:"",mobile:"",village:""}, idx));
   refreshStatus();
   pushHistory();
 }
@@ -326,11 +318,8 @@ function collectRows() {
     account_number: tr.querySelector(".f-account").value.trim(),
     name: tr.querySelector(".f-name").value.trim(),
     balance_band: tr.querySelector(".f-band").value.trim(),
-    father_name: tr.querySelector(".f-father").value.trim(),
     mobile: validMobile(tr.querySelector(".f-mobile").value),
-    taluka: tr.querySelector(".f-taluka").value.trim(),
     village: tr.querySelector(".f-village").value.trim(),
-    address: tr.querySelector(".f-address").value.trim(),
   }));
 }
 

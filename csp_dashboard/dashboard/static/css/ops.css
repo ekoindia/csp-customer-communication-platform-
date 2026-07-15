@@ -314,3 +314,24 @@ body.ops-body {
   border-bottom-color: transparent;
   background: rgba(13, 110, 253, 0.08);
 }
+
+/* ── Left sidebar navigation for the campaign dashboard tabs ─────────────── */
+.ops-tabwrap { display: flex; gap: 22px; align-items: flex-start; }
+.ops-sidenav {
+  flex: 0 0 196px; position: sticky; top: 100px; border: 0;
+  display: flex; flex-direction: column; gap: 3px;
+  background: var(--ops-panel); border: 1px solid var(--ops-line);
+  border-radius: 12px; padding: 10px;
+}
+.ops-sidenav .nav-link {
+  color: var(--ops-muted); text-align: left; border-radius: 8px;
+  padding: 10px 13px; font-weight: 600; border: 0;
+}
+.ops-sidenav .nav-link:hover { color: var(--ops-ink); background: rgba(24,22,18,.05); }
+.ops-sidenav .nav-link.active { color: #fff; background: var(--ops-green); }
+.ops-tabwrap > .tab-content { flex: 1; min-width: 0; }
+@media (max-width: 860px) {
+  .ops-tabwrap { flex-direction: column; }
+  .ops-sidenav { flex: none; width: 100%; position: static;
+                 flex-direction: row; flex-wrap: wrap; }
+}

@@ -83,11 +83,8 @@
             <tbody>
               <tr><td class="text-muted" style="width:40%" data-i18n="cd.account">Account number</td><td>{{ case.account_number or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.mobile">Mobile</td><td class="fw-semibold">{% if case.mobile %}<span class="masked-mobile">{{ case.mobile }}</span>{% elif case.pii_purged_at %}— record purged —{% else %}— not reachable —{% endif %}</td></tr>
-              <tr><td class="text-muted" data-i18n="cd.father">Father's name</td><td>{{ case.father_name or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.band">Balance band</td><td>{{ case.balance_band }} ({{ case.band_label }})</td></tr>
-              <tr><td class="text-muted" data-i18n="cd.taluka">Taluka</td><td>{{ case.taluka or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.village">Village</td><td>{{ case.village or "—" }}</td></tr>
-              <tr><td class="text-muted" data-i18n="cd.address">Address</td><td>{{ case.address or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.batch">Batch</td><td class="small">{{ case.batch_id }}</td></tr>
             </tbody>
           </table>

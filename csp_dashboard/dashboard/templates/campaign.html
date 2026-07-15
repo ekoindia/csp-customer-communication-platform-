@@ -60,13 +60,14 @@
     </p>
   </section>
 
-  <!-- Tab nav -->
-  <ul class="nav nav-tabs ops-tabs mb-4" id="campaignTabs">
-    <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#overview" data-i18n="tab.overview">Overview</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#cases" data-i18n="tab.cases">Cases</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#reports" data-i18n="tab.reports">Reports</a></li>
-    <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#settings" data-i18n="tab.settings">Settings</a></li>
-  </ul>
+  <!-- Left sidebar nav + content -->
+  <div class="ops-tabwrap">
+    <ul class="nav ops-sidenav mb-0" id="campaignTabs">
+      <li class="nav-item"><a class="nav-link active" data-bs-toggle="tab" href="#overview" data-i18n="tab.overview">Overview</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#cases" data-i18n="tab.cases">Cases</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#reports" data-i18n="tab.reports">Reports</a></li>
+      <li class="nav-item"><a class="nav-link" data-bs-toggle="tab" href="#settings" data-i18n="tab.settings">Settings</a></li>
+    </ul>
 
   <div class="tab-content">
 
@@ -260,7 +261,7 @@
         <div class="card-body p-0">
           <table class="table table-sm mb-0">
             <thead class="table-light">
-              <tr><th>Name</th><th>Band</th><th>Village</th><th>Taluka</th><th>Mobile</th></tr>
+              <tr><th>Name</th><th>Band</th><th>Village</th><th>Mobile</th></tr>
             </thead>
             <tbody>
               {% for e in escalations %}
@@ -268,7 +269,6 @@
                 <td><span class="masked-name">{{ e.name }}</span></td>
                 <td><span class="badge bg-secondary">{{ e.band_label }}</span></td>
                 <td>{{ e.village or '-' }}</td>
-                <td>{{ e.taluka or '-' }}</td>
                 <td>{% if e.mobile %}<span class="masked-mobile">{{ e.mobile }}</span>{% else %}-{% endif %}</td>
               </tr>
               {% endfor %}
@@ -581,9 +581,9 @@
             <div class="card-body d-flex justify-content-between align-items-center">
               <div>
                 <div class="fw-semibold">Eko Admin Connection</div>
-                <div class="text-muted small">CSP ID &amp; API key for admin-portal reporting (no customer data).</div>
+                <div class="text-muted small">Managed by Eko — status reporting only, no customer data. This cannot be changed or turned off here.</div>
               </div>
-              <a href="{{ url_for('dashboard.admin_connect') }}" class="btn btn-outline-secondary btn-sm">Reconfigure</a>
+              <span class="badge bg-success">Managed by Eko</span>
             </div>
           </div>
         </div>
@@ -591,6 +591,7 @@
       </div>
     </div>
 
+  </div>
   </div>
 </main>
 
