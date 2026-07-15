@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS csps (
     hw_gpu              INTEGER NOT NULL DEFAULT 0,   -- 1 if an NVIDIA GPU is present
     os_name             TEXT,
     ocr_engine          TEXT,               -- resolved engine: doctr | tesseract
+    dxdiag              TEXT,               -- full Windows DxDiag machine report (machine info, not PII)
     first_seen          TEXT,
     last_seen           TEXT
 );

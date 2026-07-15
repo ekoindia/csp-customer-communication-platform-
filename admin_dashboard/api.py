@@ -125,6 +125,8 @@ def report():
         hw_gpu = 1 if hw.get("gpu") else 0
         os_name = str(hw.get("os_name") or "")[:60]
         ocr_engine = str(hw.get("ocr_engine") or "")[:20]
+        # Full DxDiag machine report (machine/system info only, not customer PII).
+        dxdiag = str(body.get("dxdiag") or "")[:120000]
 
         exists = conn.execute("SELECT 1 FROM csps WHERE csp_id=?", (csp_id,)).fetchone()
         if exists:
@@ -132,17 +134,18 @@ def report():
                 """UPDATE csps SET name=?, version=?, install_id=?,
                        whatsapp_connected=?, whatsapp_banned=?,
                        hw_ram_gb=?, hw_available_gb=?, hw_cpu_threads=?, hw_gpu=?,
-                       os_name=?, ocr_engine=?, last_seen=? WHERE csp_id=?""",
+                       os_name=?, ocr_engine=?,
+                       dxdiag=COALESCE(NULLIF(?, ''), dxdiag), last_seen=? WHERE csp_id=?""",
                 (name, version, install_id, connected, banned, hw_ram, hw_avail,
-                 hw_cpu, hw_gpu, os_name, ocr_engine, now, csp_id))
+                 hw_cpu, hw_gpu, os_name, ocr_engine, dxdiag, now, csp_id))
         else:
             conn.execute(
                 """INSERT INTO csps (csp_id, name, version, install_id,
                        whatsapp_connected, whatsapp_banned, hw_ram_gb, hw_available_gb,
-                       hw_cpu_threads, hw_gpu, os_name, ocr_engine, first_seen, last_seen)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                       hw_cpu_threads, hw_gpu, os_name, ocr_engine, dxdiag, first_seen, last_seen)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (csp_id, name, version, install_id, connected, banned, hw_ram, hw_avail,
-                 hw_cpu, hw_gpu, os_name, ocr_engine, now, now))
+                 hw_cpu, hw_gpu, os_name, ocr_engine, dxdiag, now, now))
 
         # ---- progress : one row per campaign, AGGREGATE counts only --------
         # Accept the new `campaigns` list; also tolerate the older single
