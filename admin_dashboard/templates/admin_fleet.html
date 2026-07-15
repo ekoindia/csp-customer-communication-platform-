@@ -24,7 +24,7 @@
         {% elif c.whatsapp_connected %}<span class="pill ok">connected</span>
         {% else %}<span class="pill off">not set</span>{% endif %}
       </td>
-      <td>{{ c.last_seen or '-' }}</td>
+      <td>{{ c.last_seen | ist }}</td>
     </tr>
   {% else %}
     <tr><td colspan="6" style="color:var(--muted)">No CSP has reported yet.</td></tr>

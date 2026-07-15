@@ -9,7 +9,7 @@
   {% if c.whatsapp_banned %}<span class="pill bad">banned</span>
   {% elif c.whatsapp_connected %}<span class="pill ok">connected</span>
   {% else %}<span class="pill off">not set</span>{% endif %}
-  &middot; last seen {{ c.last_seen or '-' }} UTC</p>
+  &middot; last seen {{ c.last_seen | ist }}</p>
 
 <div class="panel">
   <h2>CSP machine (hardware)</h2>

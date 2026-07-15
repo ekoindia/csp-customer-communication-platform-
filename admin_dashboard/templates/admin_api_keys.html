@@ -55,7 +55,7 @@
         <td>{{ k.name or '-' }}</td>
         <td style="font-variant-numeric:tabular-nums">••••{{ k.api_key[-4:] }}</td>
         <td>{% if k.active %}<span class="pill ok">active</span>{% else %}<span class="pill bad">revoked</span>{% endif %}</td>
-        <td>{{ k.created_at }}</td>
+        <td>{{ k.created_at | ist }}</td>
         <td>
           {% if k.active %}
           <a href="{{ url_for('admin_ui.download_csp_setup_bat', csp_id=k.csp_id) }}"
