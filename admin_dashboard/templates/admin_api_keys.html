@@ -3,10 +3,9 @@
 {% block body %}
 <h1>Per-CSP API keys</h1>
 <p class="sub">Every CSP install needs a unique key to report to this portal
-  (POST /report, GET /sync both reject an unknown or inactive key). Issue one
-  here before sending a new CSP its install package, or when Eko hands out the
-  install (INSTALL.bat) prompt / the dashboard's "Connect to Eko Admin Portal"
-  screen — give them this CSP ID + key.</p>
+  (POST /report, GET /sync reject an unknown or inactive key). Issue a key for a
+  CSP, then click its <b>Download CSP_Setup.bat</b> link below — the key is baked
+  into that file automatically. The CSP never types a key.</p>
 
 {% if new_key %}
 <div class="panel" style="border-color:var(--accent)">
