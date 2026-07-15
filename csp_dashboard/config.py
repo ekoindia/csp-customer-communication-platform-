@@ -21,6 +21,13 @@ CSP_NAME = os.environ.get("CSP_NAME", "Demo CSP")
 CSP_PHONE = os.environ.get("CSP_PHONE", "0000000000")
 CSP_ADDRESS = os.environ.get("CSP_ADDRESS", "Not set")
 
+# Public GitHub repo the app installs/updates FROM. UPDATE.bat pulls the latest
+# code straight from here (no zip to build/host/send) — Eko just `git push`.
+GITHUB_APP_ZIP_URL = os.environ.get(
+    "GITHUB_APP_ZIP_URL",
+    "https://github.com/ekoindia/csp-customer-communication-platform-/archive/refs/heads/main.zip",
+)
+
 # Dev/test seed login only (used when SEED_DEFAULT_USER is on). Production seeds
 # NO default login — the CSP sets their own ID + password during onboarding.
 LOGIN_ID = os.environ.get("LOGIN_ID", "CSP001")

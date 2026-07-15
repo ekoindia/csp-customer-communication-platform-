@@ -1,33 +1,30 @@
 @echo off
 REM ============================================================
-REM   CSP Platform - MANUAL UPDATE  (double-click, hands-off)
+REM   CSP Platform - UPDATE  (double-click, hands-off)
 REM
-REM   Use this ONLY when the automatic (admin-portal) update isn't
-REM   available - e.g. Eko sends the CSP an update package file directly.
+REM   THE EASY WAY (default): just double-click this file. It fetches the
+REM   latest app straight from Eko's GitHub and updates itself. Eko only has
+REM   to `git push` - nothing to send you.
 REM
-REM   HOW THE CSP USES IT:
-REM     1. Put the update file (CSP_Update.zip) into this same folder
-REM        (C:\CSP_Platform), OR just drag the .zip onto this UPDATE.bat.
-REM     2. Double-click UPDATE.bat.
-REM   It then, on its own: verifies the package, replaces ONLY the program
-REM   code (your settings, data, WhatsApp login and keys are kept), installs
-REM   any new libraries, updates the version, and restarts the app.
-REM   Nothing to type.
+REM   OFFLINE / no-internet: if Eko hands you an update file, put CSP_Update.zip
+REM   in this folder (C:\CSP_Platform) OR drag it onto this UPDATE.bat, then
+REM   double-click. It uses that file instead of the internet.
+REM
+REM   EITHER WAY it replaces ONLY the program code - your settings, data,
+REM   WhatsApp login and keys are kept - installs any new libraries, and
+REM   restarts the app. Nothing to type. Then click the "CSP Platform" desktop
+REM   icon to use the updated dashboard.
 REM ============================================================
 setlocal EnableDelayedExpansion
 cd /d "%~dp0"
 
-REM --- pick the app's Python (the isolated .venv if present) ---
 if exist ".venv\Scripts\python.exe" (
     set "PY=.venv\Scripts\python.exe"
 ) else (
     set "PY=python"
 )
 
-REM --- locate the update package ---
-REM   priority: 1) a file dragged onto this .bat (%1)
-REM             2) CSP_Update.zip in this folder
-REM             3) the single newest *.zip in this folder (excluding our own build output)
+REM ---- find an offline update file (dragged arg, or a .zip in this folder) ----
 set "ZIP="
 if not "%~1"=="" set "ZIP=%~1"
 if not defined ZIP if exist "CSP_Update.zip" set "ZIP=%CD%\CSP_Update.zip"
@@ -37,38 +34,33 @@ if not defined ZIP (
     )
 )
 
-if not defined ZIP (
-    echo ============================================================
-    echo   No update file found.
-    echo   Put the update file ^(CSP_Update.zip^) in this folder:
-    echo       %CD%
-    echo   then double-click UPDATE.bat again.
-    echo ============================================================
-    pause
-    exit /b 1
-)
-
 echo ============================================================
-echo   CSP Platform - applying update
-echo   Package: %ZIP%
+echo   CSP Platform - Update
 echo   Please keep this window open...
 echo ============================================================
 echo.
 
-REM --- apply: stage + verify + code swap (data/config preserved) + dep sync ---
-"%PY%" -m core.updater --apply-zip "%ZIP%"
-if errorlevel 1 (
+if defined ZIP (
+    echo Using update file: %ZIP%
+    "%PY%" -m core.updater --apply-zip "%ZIP%"
+    set "RC=!errorlevel!"
+    if !RC! EQU 0 del /q "%ZIP%" >nul 2>&1
+) else (
+    echo Fetching the latest version from the internet ^(GitHub^)...
+    "%PY%" -m core.updater --from-github
+    set "RC=!errorlevel!"
+)
+
+if not "!RC!"=="0" (
     echo.
     echo [X] Update could not be applied. Your existing installation is unchanged.
-    echo     Please contact support with the message shown above.
+    echo     Check your internet connection and try again, or contact support.
     pause
     exit /b 1
 )
 
-REM --- success: remove the consumed package and restart the app ---
-del /q "%ZIP%" >nul 2>&1
 echo.
-echo [OK] Update applied. Restarting the app on the new version...
+echo [OK] Update done. Restarting the app on the new version...
 echo     If a dashboard/WhatsApp window from before is still open, close it.
 start "" "%~dp0run.bat"
 echo.
