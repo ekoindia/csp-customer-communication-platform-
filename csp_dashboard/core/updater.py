@@ -227,9 +227,69 @@ def apply_local_zip(zip_path: str) -> dict:
     return res
 
 
+def apply_from_github(url: str = None) -> dict:
+    """EASIEST update path: pull the latest app straight from the public GitHub
+    repo — no zip to build/host/send, Eko just `git push`. The repo zip wraps
+    everything in <repo>-<branch>/ with the CSP app under csp_dashboard/, so we
+    stage THAT subfolder's contents as the app root, then apply (code-only;
+    config/DB/keys/WhatsApp session preserved via _PRESERVE) + refresh deps.
+    Never raises / never partially applies (staging validates the zip first)."""
+    if not url:
+        try:
+            import config
+            url = config.GITHUB_APP_ZIP_URL
+        except Exception:
+            return {"ok": False, "applied": False, "error": "no GitHub URL configured"}
+    try:
+        os.makedirs(UPDATE_DIR, exist_ok=True)
+        tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False, dir=UPDATE_DIR).name
+        _download(url, tmp)
+        if not zipfile.is_zipfile(tmp):
+            os.remove(tmp)
+            return {"ok": False, "applied": False, "error": "download is not a valid zip"}
+        # Locate the app root inside the repo zip = the folder holding csp_dashboard/app.py
+        with zipfile.ZipFile(tmp) as z:
+            names = [n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")]
+        approot = next((n[:-len("app.py")] for n in names
+                        if n.endswith("/csp_dashboard/app.py") or n == "csp_dashboard/app.py"), None)
+        if not approot:
+            os.remove(tmp)
+            return {"ok": False, "applied": False, "error": "csp_dashboard/ not found in repo zip"}
+        if os.path.isdir(STAGING):
+            shutil.rmtree(STAGING, ignore_errors=True)
+        os.makedirs(STAGING, exist_ok=True)
+        with zipfile.ZipFile(tmp) as z:
+            for m in z.namelist():
+                mm = m.replace("\\", "/")
+                if mm.startswith(approot) and not mm.endswith("/"):
+                    target = os.path.join(STAGING, mm[len(approot):].replace("/", os.sep))
+                    os.makedirs(os.path.dirname(target), exist_ok=True)
+                    with z.open(m) as src, open(target, "wb") as dst:
+                        shutil.copyfileobj(src, dst)
+        os.remove(tmp)
+        with open(PENDING, "w", encoding="utf-8") as f:
+            json.dump({"version": "github-latest", "source": url}, f)
+        res = apply_pending()
+        if res.get("applied"):
+            refresh_dependencies()
+        return res
+    except Exception as e:
+        return {"ok": False, "applied": False, "error": str(e)}
+
+
 if __name__ == "__main__":
     import sys
-    if "--apply-if-pending" in sys.argv:
+    if "--from-github" in sys.argv:
+        print("[updater] pulling the latest app from GitHub...")
+        res = apply_from_github()
+        if res.get("applied"):
+            print(f"[updater] updated from GitHub ({res.get('files')} files)")
+            refresh_dependencies()
+        elif res.get("ok"):
+            print("[updater] already up to date (nothing changed).")
+        else:
+            print(f"[updater] GitHub update FAILED: {res.get('error')}")
+    elif "--apply-if-pending" in sys.argv:
         res = apply_pending()
         if res.get("applied"):
             print(f"[updater] applied update -> {res.get('version')} "
