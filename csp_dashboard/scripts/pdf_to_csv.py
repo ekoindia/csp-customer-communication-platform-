@@ -97,37 +97,38 @@ def main():
     print(f"docTR converter | {inp}")
     print(f"  {n} pages total, processing {len(pages)} at {args.dpi} DPI\n")
 
-    rows = []
-    try:
-        for pi in pages:
-            page = pdf[pi]
-            img = page.render(scale=args.dpi / 72).to_pil()
-            try:
-                r = extract_rows_from_pil(img) or []
-            finally:
-                try:
-                    img.close()
-                except Exception:
-                    pass
-            rows.extend(r)
-            print(f"  page {pi + 1}: {len(r)} rows  (running total {len(rows)})")
-    finally:
-        pdf.close()
-
+    # Stream to the CSV page-by-page (write header first, flush after every page)
+    # so the file APPEARS immediately and GROWS as it goes — no waiting for the
+    # whole run before anything is visible, and a partial file is still usable.
+    total = 0
     with open(outp, "w", newline="", encoding="utf-8-sig") as f:
         w = csv.writer(f)
         w.writerow([h for _, h in COLUMNS])
-        for r in rows:
-            r["name"] = _clean_name(r.get("name", ""))
-            w.writerow([str(r.get(k, "") or "").strip() for k, _ in COLUMNS])
+        f.flush()
+        try:
+            for pi in pages:
+                page = pdf[pi]
+                img = page.render(scale=args.dpi / 72).to_pil()
+                try:
+                    r = extract_rows_from_pil(img) or []
+                finally:
+                    try:
+                        img.close()
+                    except Exception:
+                        pass
+                for row in r:
+                    row["name"] = _clean_name(row.get("name", ""))
+                    w.writerow([str(row.get(k, "") or "").strip() for k, _ in COLUMNS])
+                f.flush()
+                os.fsync(f.fileno())
+                total += len(r)
+                print(f"  page {pi + 1}: {len(r)} rows  (total {total})", flush=True)
+        finally:
+            pdf.close()
 
-    print(f"\nWrote {len(rows)} rows -> {outp}")
-    if rows:
-        for k, h in COLUMNS:
-            filled = sum(1 for r in rows if str(r.get(k, "")).strip())
-            print(f"  {h:16} {filled}/{len(rows)} filled")
-    print("\nHand this CSV to the CSP -> they upload it in the dashboard "
-          "(no OCR on their box). Delete working copies after.")
+    print(f"\nDONE. Wrote {total} rows -> {outp}", flush=True)
+    print("Hand this CSV to the CSP -> they upload it in the dashboard "
+          "(no OCR on their box). Delete working copies after.", flush=True)
 
 
 if __name__ == "__main__":
