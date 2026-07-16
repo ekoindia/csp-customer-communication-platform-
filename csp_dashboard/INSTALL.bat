@@ -177,11 +177,19 @@ set "ICON=%INSTALL_DIR%\installer\CSP_Platform.ico"
 if not exist "%ICON%" set "ICON=%SystemRoot%\System32\shell32.dll,13"
 REM The icon runs CSP_Platform.vbs via wscript (windowless) so a single click
 REM opens the app with NO black cmd window on screen (see CSP_Platform.vbs).
-REM INSTALL_DIR is C:\CSP_Platform (no spaces), so the argument needs no quoting.
+REM IMPORTANT: this installer runs ELEVATED (admin), so the per-user "Desktop"
+REM folder would be the ADMIN account's, not the logged-in CSP's -> the icon
+REM would land on the wrong desktop and look "missing". So we create it on the
+REM ALL-USERS (Public) Desktop + Start Menu (visible to every account, incl. the
+REM CSP's), and also the current-user Desktop as a fallback. Errors are printed
+REM (no 2>nul) so a failure is visible instead of silently producing no icon.
 powershell -NoProfile -Command ^
   "$w=New-Object -ComObject WScript.Shell;" ^
-  "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\CSP Platform.lnk', [Environment]::GetFolderPath('Programs')+'\CSP Platform.lnk')){" ^
-  "  $s=$w.CreateShortcut($p); $s.TargetPath='wscript.exe'; $s.Arguments='%INSTALL_DIR%\CSP_Platform.vbs'; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
+  "$vbs='%INSTALL_DIR%\CSP_Platform.vbs';" ^
+  "$paths=New-Object System.Collections.ArrayList;" ^
+  "foreach($f in 'CommonDesktopDirectory','Desktop','CommonPrograms','Programs'){ try{ $d=[Environment]::GetFolderPath($f); if($d){ [void]$paths.Add($d+'\CSP Platform.lnk') } }catch{} };" ^
+  "$made=0; foreach($p in $paths){ try{ $s=$w.CreateShortcut($p); $s.TargetPath='wscript.exe'; $s.Arguments=$vbs; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save(); $made++; Write-Host ('  created: '+$p) } catch { Write-Host ('  skip: '+$p+' ('+$_.Exception.Message+')') } };" ^
+  "if($made -eq 0){ Write-Host '[!] Could not create the icon anywhere.' } else { Write-Host ('[OK] App icon created ('+$made+' location(s)).') }"
 REM (No separate "Start WhatsApp" desktop icon: the WhatsApp sender is started
 REM ON DEMAND from the dashboard's Settings tab -> "Start WhatsApp" button, which
 REM launches it in the BACKGROUND with no window. Kept off during upload/OCR to
