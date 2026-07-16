@@ -97,6 +97,15 @@ TORCH_MAX_THREADS = 4
 # otherwise — same code on the dev RTX 4060 box and the CPU-only deploy PC.
 DOCTR_RECO_ARCH = "auto"
 
+# Scanned-PDF render DPI (peak OCR RAM grows with DPI^2). "auto" = 300 on a
+# capable box, OCR_LOW_RAM_DPI on a 4 GB box / when little RAM is free (so a
+# full-page render doesn't push the deploy PC into swap). Set an int here to pin
+# it (e.g. 300) if a particular scan needs more sharpness and the box can spare
+# the RAM. See core/hardware.render_dpi.
+OCR_RENDER_DPI = "auto"
+OCR_LOW_RAM_DPI = 220
+OCR_HIGH_RAM_DPI = 300
+
 DB_PATH = "database/csp_platform.db"
 
 # ── Admin-portal reporting (CSP -> Eko) ─────────────────────────────────────

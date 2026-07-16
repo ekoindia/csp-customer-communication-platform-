@@ -60,15 +60,30 @@ def _parse_pdf(file_path: str) -> List[Dict]:
 
 
 def _parse_scanned_pdf(file_path: str) -> List[Dict]:
+    import gc
     import pypdfium2 as pdfium
     from core.ocr_table import extract_rows_from_pil
+    from core import hardware
 
+    # Adaptive DPI: lower on a 4 GB box so a full-page render doesn't spike RAM
+    # into swap (see hardware.render_dpi). Configurable via config.OCR_RENDER_DPI.
+    scale = hardware.render_dpi() / 72
     all_rows = []
     pdf = pdfium.PdfDocument(file_path)
     try:
         for page in pdf:
-            image = page.render(scale=300 / 72).to_pil()
-            all_rows.extend(extract_rows_from_pil(image))
+            image = page.render(scale=scale).to_pil()
+            try:
+                all_rows.extend(extract_rows_from_pil(image))
+            finally:
+                # Free this page's large image BEFORE rendering the next one, so
+                # only ONE page ever sits in RAM at a time (critical on 4 GB).
+                try:
+                    image.close()
+                except Exception:
+                    pass
+                del image
+                gc.collect()
     finally:
         pdf.close()
     return all_rows
