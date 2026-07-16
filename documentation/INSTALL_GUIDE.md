@@ -23,7 +23,22 @@ the **CSP double-clicks it**. No zip to build, no key to send separately.
 
 ## PART B — CSP side (install)
 
-**Needs:** Windows 10/11 + broadband internet.
+### Minimum hardware (the hardware constraint)
+The setup checks this up front and stops with a clear message if the PC is below it.
+
+| Component | Minimum | Notes |
+|---|---|---|
+| OS | **Windows 10, 64-bit** (or 11) | 32-bit not supported |
+| RAM | **4 GB** | runs in light Tesseract-only OCR; hard floor 3 GB (below = blocked) |
+| Free disk | **~3 GB** | for the app + Python/Node/Tesseract |
+| CPU | dual-core x64 (i3 or better) | no GPU needed |
+| Internet | broadband | WhatsApp + updates |
+
+> Reference deploy PC = **Dell Inspiron 3268** (4 GB, i3-7100, no GPU, Win10 x64).
+> The app auto-detects RAM and adapts: on a 4 GB box it uses the light OCR path,
+> starts WhatsApp only when sending, and renders scans at a lower DPI — so it
+> fits without swapping. Bank **CSV/Excel** uploads skip OCR entirely (most
+> accurate + lightest).
 
 1. **Double-click** `CSP_Setup_<id>.bat`.
 2. On the Windows security (UAC) prompt, click **Yes / Run anyway**.

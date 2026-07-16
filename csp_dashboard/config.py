@@ -106,6 +106,20 @@ OCR_RENDER_DPI = "auto"
 OCR_LOW_RAM_DPI = 220
 OCR_HIGH_RAM_DPI = 300
 
+# ── Minimum hardware the platform supports (the "hardware constraint") ───────
+# Single source of truth, used by the install-time gate (INSTALL.bat) and the
+# deploy preflight (deploy_check.py). The CONFIRMED deploy PC — Dell Inspiron
+# 3268: 4 GB RAM, i3-7100, no GPU, Windows 10 x64 — is the FLOOR the software
+# targets; it runs there in light Tesseract-only OCR (no PyTorch/docTR).
+#   • RAM reports low on these boxes (~3.8 GB for a 4 GB PC) because the Intel
+#     iGPU reserves shared memory, so the HARD floor is 3.0, not 4.0 — a stricter
+#     floor would false-block a machine the app actually runs on.
+MIN_RAM_HARD_GB = 3.0        # below this: NO-GO (can't run reliably) -> install blocks
+MIN_RAM_RECOMMENDED_GB = 4.0 # below this: WARN (runs, light OCR mode, close other apps)
+MIN_FREE_DISK_GB = 3.0       # install needs ~3 GB (app + Python/Node/Tesseract deps)
+MIN_FREE_RAM_GB = 0.8        # free RAM to start a batch without swapping
+MIN_OS = "Windows 10 (64-bit)"
+
 DB_PATH = "database/csp_platform.db"
 
 # ── Admin-portal reporting (CSP -> Eko) ─────────────────────────────────────

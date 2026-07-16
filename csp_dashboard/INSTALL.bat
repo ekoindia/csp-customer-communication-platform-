@@ -51,6 +51,34 @@ echo   Please keep this window open. This can take a few minutes.
 echo ============================================================
 echo.
 
+REM ---------- Hardware constraint (minimum spec) — checked UP FRONT ----------
+REM The platform targets the 4 GB Dell Inspiron deploy PC as its FLOOR (see
+REM config.py MIN_* constants). Check RAM + free disk before downloading Python/
+REM Node/Tesseract, so a box below the HARD minimum fails fast with a clear
+REM message, and a below-recommended box gets a heads-up but still installs.
+echo Checking hardware ...
+powershell -NoProfile -Command ^
+  "$ram=[math]::Round((Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory/1GB,1);" ^
+  "$os=(Get-CimInstance Win32_OperatingSystem); $bits=$os.OSArchitecture;" ^
+  "$drv=(Get-Item '%INSTALL_DIR%').PSDrive.Name; $free=[math]::Round((Get-PSDrive $drv).Free/1GB,1);" ^
+  "Write-Host ('  OS: '+$os.Caption+' '+$bits+'   RAM: '+$ram+' GB   Free disk ('+$drv+':): '+$free+' GB');" ^
+  "if($bits -notmatch '64'){ Write-Host '[X] A 64-bit version of Windows is required.'; exit 2 };" ^
+  "if($ram -lt 3.0){ Write-Host '[X] Less than 3 GB RAM - too low to run the platform reliably.'; exit 2 };" ^
+  "if($free -lt 3.0){ Write-Host '[X] Less than 3 GB free disk - free up some space and run again.'; exit 3 };" ^
+  "if($ram -lt 3.5){ Write-Host '[!] Below 4 GB RAM - runs in light OCR mode; close other apps during a batch.' };" ^
+  "exit 0"
+if errorlevel 2 (
+    echo.
+    echo   ============================================================
+    echo   This PC is below the MINIMUM hardware the CSP Platform needs:
+    echo       Windows 10 64-bit  .  4 GB RAM  .  ~3 GB free disk
+    echo   Please use a PC that meets this, then run the setup again.
+    echo   ============================================================
+    pause & exit /b 1
+)
+echo [OK] Hardware check passed.
+echo.
+
 REM --- winget available? (App Installer, present on current Windows 10/11) ---
 where winget >nul 2>&1
 if errorlevel 1 (
@@ -152,14 +180,10 @@ powershell -NoProfile -Command ^
   "$t='%INSTALL_DIR%\run.bat';" ^
   "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\CSP Platform.lnk', [Environment]::GetFolderPath('Programs')+'\CSP Platform.lnk')){" ^
   "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
-REM Second icon: starts the WhatsApp sender ON DEMAND (kept off during OCR to save
-REM RAM on the 4 GB PC — see run.bat). The CSP double-clicks this only when ready
-REM to send, and scans the QR once.
-powershell -NoProfile -Command ^
-  "$w=New-Object -ComObject WScript.Shell;" ^
-  "$t='%INSTALL_DIR%\start_whatsapp.bat';" ^
-  "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\Start WhatsApp.lnk', [Environment]::GetFolderPath('Programs')+'\Start WhatsApp.lnk')){" ^
-  "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='Start WhatsApp sender (only when sending)'; $s.Save() }" 2>nul
+REM (No separate "Start WhatsApp" desktop icon: the WhatsApp sender is started
+REM ON DEMAND from the dashboard's Settings tab -> "Start WhatsApp" button, which
+REM launches it in the BACKGROUND with no window. Kept off during upload/OCR to
+REM save RAM on the 4 GB PC — see run.bat.)
 
 echo.
 echo ============================================================

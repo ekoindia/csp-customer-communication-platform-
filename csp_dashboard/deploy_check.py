@@ -41,21 +41,27 @@ add("PASS", "Operating system", platform.platform())
 
 # 3. Hardware profile + RAM (drives OCR mode)
 try:
+    import config
     from core import hardware
     p = hardware.profile()
+    # Minimum-spec constants (single source of truth — config.py MIN_*).
+    hard = getattr(config, "MIN_RAM_HARD_GB", 3.0)
+    ocr_threshold = getattr(config, "OCR_RAM_THRESHOLD_GB", 6)
+    min_free_ram = getattr(config, "MIN_FREE_RAM_GB", 0.8)
     add("PASS", "Hardware profile", hardware.summary_line())
-    # Floor is 3.0, not 3.5: the confirmed 4 GB deploy PCs report ~3.8 GB total
+    # Floor is 3.0, not 4.0: the confirmed 4 GB deploy PCs report ~3.8 GB total
     # because the integrated Intel GPU reserves shared memory, and a stricter
     # floor would false-FAIL a machine the app actually runs fine on (Tesseract
-    # -only mode). Below 3.0 GB it genuinely can't run reliably.
-    if p["ram_gb"] < 3.0:
-        add("FAIL", "Total RAM", f"{p['ram_gb']} GB - too low to run reliably")
-    elif p["ram_gb"] < 6:
+    # -only mode). Below MIN_RAM_HARD_GB it genuinely can't run reliably.
+    if p["ram_gb"] < hard:
+        add("FAIL", "Total RAM",
+            f"{p['ram_gb']} GB - below the {hard} GB hard minimum")
+    elif p["ram_gb"] < ocr_threshold:
         add("WARN", "Total RAM",
             f"{p['ram_gb']} GB - runs in light Tesseract-only OCR (no PyTorch)")
     else:
         add("PASS", "Total RAM", f"{p['ram_gb']} GB - docTR OCR available")
-    if p["available_gb"] < 0.8:
+    if p["available_gb"] < min_free_ram:
         add("WARN", "Free RAM right now",
             f"{p['available_gb']} GB - close other apps before a big batch")
     else:
@@ -65,9 +71,11 @@ except Exception as e:
 
 # 4. Disk space on the app drive
 try:
+    import config as _cfg
+    min_disk = getattr(_cfg, "MIN_FREE_DISK_GB", 3.0)
     free = shutil.disk_usage(os.getcwd()).free / 1e9
-    add("PASS" if free >= 2 else "FAIL", "Disk free (app drive)",
-        f"{free:.1f} GB" + ("" if free >= 2 else " - need ~2 GB"))
+    add("PASS" if free >= min_disk else "FAIL", "Disk free (app drive)",
+        f"{free:.1f} GB" + ("" if free >= min_disk else f" - need ~{min_disk} GB"))
 except Exception as e:
     add("WARN", "Disk free", str(e))
 
