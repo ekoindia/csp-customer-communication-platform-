@@ -175,11 +175,13 @@ REM ---------- 8. Desktop + Start-Menu shortcut (the app icon) ----------
 echo Creating the "CSP Platform" app icon ...
 set "ICON=%INSTALL_DIR%\installer\CSP_Platform.ico"
 if not exist "%ICON%" set "ICON=%SystemRoot%\System32\shell32.dll,13"
+REM The icon runs CSP_Platform.vbs via wscript (windowless) so a single click
+REM opens the app with NO black cmd window on screen (see CSP_Platform.vbs).
+REM INSTALL_DIR is C:\CSP_Platform (no spaces), so the argument needs no quoting.
 powershell -NoProfile -Command ^
   "$w=New-Object -ComObject WScript.Shell;" ^
-  "$t='%INSTALL_DIR%\run.bat';" ^
   "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\CSP Platform.lnk', [Environment]::GetFolderPath('Programs')+'\CSP Platform.lnk')){" ^
-  "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
+  "  $s=$w.CreateShortcut($p); $s.TargetPath='wscript.exe'; $s.Arguments='%INSTALL_DIR%\CSP_Platform.vbs'; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
 REM (No separate "Start WhatsApp" desktop icon: the WhatsApp sender is started
 REM ON DEMAND from the dashboard's Settings tab -> "Start WhatsApp" button, which
 REM launches it in the BACKGROUND with no window. Kept off during upload/OCR to
@@ -198,7 +200,7 @@ echo.
 echo   From next time, just double-click the "CSP Platform" icon
 echo   on the Desktop to open the software.
 echo ============================================================
-start "" "%INSTALL_DIR%\run.bat"
+start "" wscript.exe "%INSTALL_DIR%\CSP_Platform.vbs"
 echo.
 pause
 exit /b 0
