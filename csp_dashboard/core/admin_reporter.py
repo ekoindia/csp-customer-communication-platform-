@@ -180,40 +180,68 @@ def _hardware() -> dict:
     return out
 
 
-def _dxdiag() -> str:
-    """Full Windows DxDiag system report of the CSP MACHINE (drivers, hardware,
-    OS) — operational machine info, NOT customer data. dxdiag is slow (~15-30s),
-    so capture it ONCE, cache it next to the DB, and reuse the cached text on
-    every later report. Never raises; returns "" if unavailable (e.g. non-Windows)."""
+def _dxdiag_cache_path() -> str:
     import os as _os
-    cache = _os.path.join(_os.path.dirname(_os.path.abspath(config.DB_PATH)), "dxdiag.txt")
+    return _os.path.join(_os.path.dirname(_os.path.abspath(config.DB_PATH)), "dxdiag.txt")
+
+
+def _dxdiag() -> str:
+    """Return the CACHED DxDiag text if it's been captured, else "" — this NEVER
+    blocks. dxdiag itself is slow (~1-2 min on a 4 GB box), so it is captured once
+    in a background thread (see _capture_dxdiag_async) and only READ here, so it
+    never delays a heartbeat. An empty "" is COALESCE'd server-side (doesn't wipe
+    a previously-sent value), so the machine report simply lands on a later beat."""
+    import os as _os
     try:
-        if _os.path.isfile(cache) and _os.path.getsize(cache) > 0:
-            with open(cache, "r", encoding="utf-8", errors="replace") as f:
+        p = _dxdiag_cache_path()
+        if _os.path.isfile(p) and _os.path.getsize(p) > 0:
+            with open(p, "r", encoding="utf-8", errors="replace") as f:
                 return f.read()[:80000]
-        import subprocess
-        import tempfile
-        import time
-        tmp = _os.path.join(tempfile.gettempdir(), "csp_dxdiag.txt")
-        subprocess.run(["dxdiag", "/t", tmp], timeout=120, check=False)
-        for _ in range(20):                       # dxdiag writes the file async-ish
-            if _os.path.isfile(tmp) and _os.path.getsize(tmp) > 0:
-                break
-            time.sleep(0.5)
-        if _os.path.isfile(tmp):
-            with open(tmp, "r", encoding="utf-8", errors="replace") as f:
-                txt = f.read()
-            _os.makedirs(_os.path.dirname(cache), exist_ok=True)
-            with open(cache, "w", encoding="utf-8") as f:
-                f.write(txt)
-            try:
-                _os.remove(tmp)
-            except Exception:
-                pass
-            return txt[:80000]
     except Exception:
         pass
     return ""
+
+
+_dxdiag_capture_started = False
+
+
+def _capture_dxdiag_async():
+    """Capture DxDiag ONCE, in a daemon thread, off the report path. No-op if it
+    is already cached or a capture is already running."""
+    global _dxdiag_capture_started
+    if _dxdiag_capture_started:
+        return
+    _dxdiag_capture_started = True
+    import os as _os
+    cache = _dxdiag_cache_path()
+    if _os.path.isfile(cache) and _os.path.getsize(cache) > 0:
+        return
+
+    def _run():
+        try:
+            import subprocess
+            import tempfile
+            import time
+            tmp = _os.path.join(tempfile.gettempdir(), "csp_dxdiag.txt")
+            subprocess.run(["dxdiag", "/t", tmp], timeout=120, check=False)
+            for _ in range(20):
+                if _os.path.isfile(tmp) and _os.path.getsize(tmp) > 0:
+                    break
+                time.sleep(0.5)
+            if _os.path.isfile(tmp):
+                with open(tmp, "r", encoding="utf-8", errors="replace") as f:
+                    txt = f.read()
+                _os.makedirs(_os.path.dirname(cache), exist_ok=True)
+                with open(cache, "w", encoding="utf-8") as f:
+                    f.write(txt)
+                try:
+                    _os.remove(tmp)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+    threading.Thread(target=_run, daemon=True).start()
 
 
 def _whatsapp_status() -> dict:
@@ -322,6 +350,7 @@ def start_background():
     """Start the periodic report+sync loop in a daemon thread (no-op if off)."""
     if not getattr(config, "ADMIN_REPORT_ENABLED", False):
         return
+    _capture_dxdiag_async()   # machine report captured once, OFF the heartbeat path
     interval = max(60, int(getattr(config, "ADMIN_REPORT_INTERVAL_SEC", 300)))
 
     def _loop():
@@ -331,4 +360,4 @@ def start_background():
         t.daemon = True
         t.start()
 
-    threading.Timer(5, _loop).start()  # first beat shortly after startup
+    threading.Timer(3, _loop).start()  # first beat almost immediately (no dxdiag wait)
