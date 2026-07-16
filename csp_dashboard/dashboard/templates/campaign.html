@@ -542,7 +542,12 @@
                 <span class="fw-semibold">WhatsApp</span>
                 <span id="waStatus" class="badge bg-secondary">checking...</span>
               </div>
-              <div class="text-muted small mb-3" id="waDetail">-</div>
+              <div class="text-muted small mb-2" id="waDetail">-</div>
+              <div class="alert alert-light border small py-2 mb-3" role="note">
+                <span data-i18n="wa_ondemand_hint">Start WhatsApp only when you are ready to send —
+                  after your cases are created. Keeping it off during upload &amp; OCR saves memory
+                  on a small PC. It starts in the background (no extra window).</span>
+              </div>
               <div class="d-flex gap-2 mb-3 flex-wrap">
                 <button id="btnStartWa" class="btn btn-sm btn-success" onclick="startWhatsAppServer()">
                   Start WhatsApp

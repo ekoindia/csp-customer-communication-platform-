@@ -25,7 +25,8 @@ start "CSP Dashboard" /min cmd /k start_dashboard.bat
 
 echo.
 echo Dashboard starting: http://127.0.0.1:5000  (opens in your browser automatically).
-echo When you are ready to SEND WhatsApp messages, double-click the
-echo   "Start WhatsApp" icon on the Desktop and scan the QR once.
+echo When your cases are ready and you want to SEND WhatsApp messages, open the
+echo   dashboard's Settings tab and click "Start WhatsApp" (starts in the
+echo   background, no window), then scan the QR once.
 echo.
 echo You can close this window.
