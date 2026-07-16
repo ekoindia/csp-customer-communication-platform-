@@ -116,6 +116,27 @@ def resolve_ocr_engine() -> str:
     return "tesseract"
 
 
+def render_dpi() -> int:
+    """DPI to render a scanned PDF page before OCR. Peak RAM for a page image
+    grows with DPI SQUARED, so on the 4 GB deploy PC (often only ~400-500 MB
+    free) a 300-DPI full-page render is the single biggest OCR memory spike and
+    pushes the box into swap. Below OCR_RAM_THRESHOLD_GB — or when very little
+    RAM is free right now — render lower (default 220 DPI ≈ 46% less pixels) so
+    it fits; a capable box keeps 300 for max sharpness. Explicit
+    config.OCR_RENDER_DPI (an int) overrides the auto choice entirely."""
+    override = getattr(config, "OCR_RENDER_DPI", "auto")
+    try:
+        return int(override)  # explicit pin wins
+    except (TypeError, ValueError):
+        pass  # "auto"
+    low = int(getattr(config, "OCR_LOW_RAM_DPI", 220))
+    high = int(getattr(config, "OCR_HIGH_RAM_DPI", 300))
+    threshold = getattr(config, "OCR_RAM_THRESHOLD_GB", 6)
+    if total_ram_gb() < threshold or available_ram_gb() < 1.0:
+        return low
+    return high
+
+
 def resolve_reco_arch(cuda_available: bool) -> str:
     """docTR recognition backbone. Explicit config.DOCTR_RECO_ARCH wins; "auto"
     uses the accurate "parseq" only on a GPU, else the light CPU-friendly one."""
