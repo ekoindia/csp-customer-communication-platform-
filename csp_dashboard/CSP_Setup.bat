@@ -37,7 +37,9 @@ REM prompts on its own) — the setup still works, it just asks a couple more ti
 if "%~1"=="::elevated" goto :afterelevate
 net session >nul 2>&1
 if not errorlevel 1 goto :afterelevate
-powershell -NoProfile -Command "try { Start-Process -FilePath '%~f0' -ArgumentList '::elevated' -Verb RunAs } catch { exit 1 }"
+set "CSP_SETUP_SELF=%~f0"
+powershell -NoProfile -Command "try { Start-Process -FilePath $env:CSP_SETUP_SELF -ArgumentList '::elevated' -Verb RunAs } catch { exit 1 }"
+set "CSP_SETUP_SELF="
 if not errorlevel 1 exit /b
 echo (Continuing without administrator rights - you may see a security prompt for
 echo  each component that installs.)
