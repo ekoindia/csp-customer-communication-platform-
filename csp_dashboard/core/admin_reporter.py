@@ -259,12 +259,25 @@ def _whatsapp_status() -> dict:
     return status
 
 
+def _csp_name() -> str:
+    """The CSP's REAL branch name from onboarding (branches table), not the
+    config placeholder. Falls back to config.CSP_NAME. Never raises."""
+    try:
+        from core import settings
+        n = (settings.get_csp_settings() or {}).get("csp_name")
+        if n and str(n).strip():
+            return str(n).strip()
+    except Exception:
+        pass
+    return getattr(config, "CSP_NAME", "")
+
+
 def build_payload() -> dict:
     """Assemble the allow-listed payload. This is the ONLY data that leaves the
     CSP PC. Every key here is operational or an aggregate count — never PII."""
     return {
         "csp_id": config.ADMIN_CSP_ID,
-        "name": config.CSP_NAME,          # CSP shop/branch name (public), not a person
+        "name": _csp_name(),              # REAL branch name (onboarding), not a person
         "install_id": config.ADMIN_CSP_ID,
         "version": getattr(config, "APP_VERSION", "0"),
         "month": _month(),

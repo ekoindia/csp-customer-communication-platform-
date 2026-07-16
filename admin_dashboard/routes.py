@@ -181,10 +181,16 @@ def logout():
 def fleet():
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM csps ORDER BY name, csp_id").fetchall()
+        # The admin-set label (from the API Keys page) is authoritative for
+        # display and WINS over the CSP's self-reported name — which can be a
+        # placeholder like "Demo CSP" until the CSP finishes branch onboarding.
+        labels = {r["csp_id"]: r["name"] for r in conn.execute(
+            "SELECT csp_id, name FROM api_keys").fetchall()}
     csps = []
     for r in rows:
         d = dict(r)
         d["online"] = _is_online(r["last_seen"])
+        d["name"] = (labels.get(d["csp_id"]) or "").strip() or d.get("name")
         csps.append(d)
     online = sum(1 for c in csps if c["online"])
     return render_template("admin_fleet.html", csps=csps, total=len(csps),
@@ -197,6 +203,8 @@ def fleet():
 def csp_detail(csp_id):
     with get_connection() as conn:
         c = conn.execute("SELECT * FROM csps WHERE csp_id=?", (csp_id,)).fetchone()
+        label = conn.execute(
+            "SELECT name FROM api_keys WHERE csp_id=?", (csp_id,)).fetchone()
         prog = conn.execute(
             "SELECT * FROM progress WHERE csp_id=? ORDER BY month DESC, campaign_id",
             (csp_id,)).fetchall()
@@ -214,6 +222,8 @@ def csp_detail(csp_id):
         bands.setdefault((b["campaign_id"], b["month"]), []).append(dict(b))
     prog = [dict(p, bands=bands.get((p["campaign_id"], p["month"]), [])) for p in prog]
     d = dict(c); d["online"] = _is_online(c["last_seen"])
+    if label and (label["name"] or "").strip():   # admin-set label wins over self-reported
+        d["name"] = label["name"].strip()
     return render_template("admin_csp_detail.html", c=d, progress=prog, audit=audit)
 
 
