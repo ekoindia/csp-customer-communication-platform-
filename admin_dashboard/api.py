@@ -113,6 +113,14 @@ def report():
 
         # ---- csps (heartbeat) : allow-listed scalar fields only ------------
         name = str(body.get("name") or "")[:120]
+        # The admin-set label (API Keys page) is AUTHORITATIVE for the CSP's
+        # display name and overrides the self-reported one (which can be a config
+        # placeholder like "Demo CSP" until branch onboarding). Fixing it here, at
+        # the write, keeps EVERY admin page (Fleet/Earnings/Campaigns/WhatsApp)
+        # consistent with no per-page changes.
+        _label = conn.execute("SELECT name FROM api_keys WHERE csp_id=?", (csp_id,)).fetchone()
+        if _label and (_label["name"] or "").strip():
+            name = _label["name"].strip()[:120]
         version = str(body.get("version") or "")[:40]
         install_id = str(body.get("install_id") or csp_id)[:80]
         wa = body.get("whatsapp") or {}
