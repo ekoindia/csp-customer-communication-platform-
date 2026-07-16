@@ -145,7 +145,7 @@ ADMIN_REPORT_ENABLED = os.environ.get("ADMIN_REPORT_ENABLED", "0") == "1"
 ADMIN_API_BASE = os.environ.get("ADMIN_API_BASE", "http://122.176.147.78:8080/csp-admin/api/v1")
 ADMIN_CSP_ID = os.environ.get("ADMIN_CSP_ID", "CSP001")   # this install's opaque id
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "demo-key-CSP001")  # per-CSP key
-ADMIN_REPORT_INTERVAL_SEC = 300                    # heartbeat/sync cadence
+ADMIN_REPORT_INTERVAL_SEC = 120                    # heartbeat/sync cadence (2 min = admin reflects changes fast)
 
 
 def _read_version() -> str:
