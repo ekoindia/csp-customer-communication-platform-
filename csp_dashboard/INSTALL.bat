@@ -173,14 +173,25 @@ exit /b 0
 
 REM ------------------------------------------------------------
 :ensure_python
-REM Accept an already-installed Python ONLY if it is 3.10-3.12 — those are the
-REM versions with matching prebuilt wheels for this project's numpy 2.1 / opencv
-REM 4.10 stack. A wrong version (e.g. 3.9 or 3.13) would force pip to build from
-REM source, which is slow and can OOM the 4 GB box. Otherwise install 3.11.
+REM Land on a Python 3.10-3.12 interpreter — those are the versions with matching
+REM prebuilt wheels for this numpy 2.1 / opencv 4.10 / onnxruntime 1.19 stack. A
+REM wrong version (e.g. 3.9 or 3.13) would force pip to build from source, which is
+REM slow and can OOM the 4 GB box. This box (Dell Inspiron 3268, Win10) may ship a
+REM NEWER python (e.g. 3.13) or none, so we DON'T trust bare `python` — we pin 3.11
+REM via the Windows `py` launcher and resolve its real exe path (safe to quote).
+REM 1) A supported version already present? Prefer the py launcher (most reliable),
+REM    resolving the actual python.exe so `set PY=` is a real path, never "py -3.11".
+for %%V in (3.11 3.12 3.10) do (
+    for /f "delims=" %%P in ('py -%%V -c "import sys;print(sys.executable)" 2^>nul') do set "PY=%%P"
+    if defined PY goto :eof
+)
+REM    (no launcher) accept a bare `python` only if it is itself 3.10-3.12.
 python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && ( set "PY=python" & goto :eof )
+REM 2) Nothing usable — install 3.11 (user scope = no admin needed).
 echo Installing Python 3.11 ...
 where winget >nul 2>&1 && winget install -e --id Python.Python.3.11 --silent --scope user --accept-package-agreements --accept-source-agreements
-for %%D in ("%LOCALAPPDATA%\Programs\Python\Python311" "%LOCALAPPDATA%\Programs\Python\Python312" "%ProgramFiles%\Python311" "%ProgramFiles%\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
-REM Last resort: accept a pre-existing python only if it is a supported version.
+REM 3) Re-detect after install: py launcher first, then the known install dirs.
+for /f "delims=" %%P in ('py -3.11 -c "import sys;print(sys.executable)" 2^>nul') do set "PY=%%P"
+if not defined PY for %%D in ("%LOCALAPPDATA%\Programs\Python\Python311" "%ProgramFiles%\Python311" "%LOCALAPPDATA%\Programs\Python\Python312" "%ProgramFiles%\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
 if not defined PY ( python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && set "PY=python" )
 goto :eof
