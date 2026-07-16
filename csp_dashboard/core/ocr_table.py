@@ -36,6 +36,53 @@ _BAND_RE = re.compile(
     re.IGNORECASE,
 )
 
+# The balance column can only EVER hold one of these four bands. On a phone photo
+# Tesseract mangles them (l/1, O/0, S/5, dropped '<') so the strict _BAND_RE
+# often fails and the cell comes back blank -> a needless "need a fix". Because
+# there are only four possible values, we can snap whatever was read to the right
+# band by the LEADING number's magnitude — robust even if the rest is garbled.
+_KNOWN_BANDS = ("0.1<100", "100<1000", "1000<10000", "B>10000")
+
+
+def _snap_band(text: str) -> str:
+    """Snap a mangled balance-cell reading to one of the four known bands, or ''
+    if nothing plausible. Used as a FALLBACK after a strict _BAND_RE match fails."""
+    if not text:
+        return ""
+    s = re.sub(r"\s+", "", str(text).upper())
+    if not s:
+        return ""
+    if ">" in s:                      # only the top band uses '>'
+        return "B>10000"
+    # normalise the usual photo-OCR letter->digit confusions
+    t = s.translate(str.maketrans({"L": "1", "I": "1", "|": "1", "O": "0",
+                                   "D": "0", "Q": "0", "S": "5", "Z": "2",
+                                   "G": "6", "B": "8"}))
+    # A real band is all digits/separators once the digit-confusion letters are
+    # mapped. If any OTHER letter survived, this cell is text (a name/taluka bled
+    # in), NOT a band -> don't fabricate one.
+    if re.search(r"[A-Z]", t):
+        return ""
+    nums = re.findall(r"\d+(?:\.\d+)?", t)
+    if not nums:
+        return ""
+    intpart = re.sub(r"\..*", "", nums[0])
+    if len(intpart) > 5:              # bands top out at 10000 (5 digits); a longer
+        return ""                     # leading number = another column bled in
+    try:
+        first = float(nums[0])
+    except ValueError:
+        return ""
+    if first <= 0:
+        return ""
+    if first < 100:
+        return "0.1<100"
+    if first < 1000:
+        return "100<1000"
+    if first < 10000:
+        return "1000<10000"
+    return "B>10000"
+
 # Relationship prefixes that mark the start of the address text (S/O, D/O, W/O),
 # and the location markers (VILL-/POST-/DIST- etc.) used when there's no relation
 # prefix. Not anchored to the string start — searched anywhere in the trailing
@@ -869,7 +916,12 @@ def _extract_grid(gray_np: np.ndarray):
                   or _valid_mobile(cell(ri, mob_col))
                   or _valid_mobile(digit_cell(mob_col, ri)))
 
-        bm = _BAND_RE.search(cell(ri, bal_col))
+        # Balance band: strict regex first; if that fails (mangled photo OCR),
+        # snap the cell text to the nearest of the 4 known bands so it isn't left
+        # blank for the CSP to fix by hand.
+        _bal_txt = cell(ri, bal_col)
+        _bm = _BAND_RE.search(_bal_txt)
+        balance_band = _bm.group(0).replace(" ", "") if _bm else _snap_band(_bal_txt)
 
         # Name / father are text. If a mis-detected column dropped a balance band
         # or a bare number into them, that's clearly wrong — blank it rather than
@@ -904,7 +956,7 @@ def _extract_grid(gray_np: np.ndarray):
         rec = {
             "account_number": account,
             "name": name,
-            "balance_band": bm.group(0).replace(" ", "") if bm else "",
+            "balance_band": balance_band,
             "father_name": father,
             "mobile": mobile,
             "taluka": taluka,

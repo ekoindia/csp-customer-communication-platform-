@@ -103,7 +103,7 @@ DOCTR_RECO_ARCH = "auto"
 # it (e.g. 300) if a particular scan needs more sharpness and the box can spare
 # the RAM. See core/hardware.render_dpi.
 OCR_RENDER_DPI = "auto"
-OCR_LOW_RAM_DPI = 220
+OCR_LOW_RAM_DPI = 260   # printed tables read better at 260 than 220; still fits 4 GB
 OCR_HIGH_RAM_DPI = 300
 
 # ── Minimum hardware the platform supports (the "hardware constraint") ───────
