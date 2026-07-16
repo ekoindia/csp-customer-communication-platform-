@@ -152,6 +152,14 @@ powershell -NoProfile -Command ^
   "$t='%INSTALL_DIR%\run.bat';" ^
   "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\CSP Platform.lnk', [Environment]::GetFolderPath('Programs')+'\CSP Platform.lnk')){" ^
   "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='CSP Communication Platform'; $s.Save() }" 2>nul
+REM Second icon: starts the WhatsApp sender ON DEMAND (kept off during OCR to save
+REM RAM on the 4 GB PC — see run.bat). The CSP double-clicks this only when ready
+REM to send, and scans the QR once.
+powershell -NoProfile -Command ^
+  "$w=New-Object -ComObject WScript.Shell;" ^
+  "$t='%INSTALL_DIR%\start_whatsapp.bat';" ^
+  "foreach($p in @([Environment]::GetFolderPath('Desktop')+'\Start WhatsApp.lnk', [Environment]::GetFolderPath('Programs')+'\Start WhatsApp.lnk')){" ^
+  "  $s=$w.CreateShortcut($p); $s.TargetPath=$t; $s.WorkingDirectory='%INSTALL_DIR%'; $s.IconLocation='%ICON%'; $s.Description='Start WhatsApp sender (only when sending)'; $s.Save() }" 2>nul
 
 echo.
 echo ============================================================
