@@ -1,4 +1,5 @@
 import os
+import re
 import subprocess
 import uuid
 
@@ -627,6 +628,34 @@ def update_case(case_id: str):
                     "error": "Customer records are locked after confirmation and "
                              "can no longer be edited. To correct a row, delete the "
                              "batch and upload it again."}), 403
+
+
+@dashboard_bp.route("/api/case/<case_id>/mobile", methods=["POST"])
+def update_case_mobile_route(case_id: str):
+    """Correct ONLY the mobile number on a case. This is the ONE exception to the
+    locked-after-confirmation rule (update_case): OCR misses/mis-reads ~1 in 7
+    mobiles on a scanned page, and a wrong number means the customer can never be
+    reached. Everything else (name, account, the generated message) stays
+    immutable. DPDP-safe: the number is validated, re-encrypted at rest, refused
+    on a purged/closed case (never re-introduce PII), and audit-logged. The
+    message text is unaffected — it embeds the name, not the mobile — so no
+    regeneration is needed; the dispatcher reads the fresh number at send time."""
+    guard = _login_required()
+    if guard:
+        return jsonify({"error": "not logged in"}), 401
+    from database.queries import get_case, update_case_mobile
+    data = request.get_json(silent=True) or {}
+    raw = re.sub(r"\D", "", str(data.get("mobile", "")))
+    if not (len(raw) == 10 and raw[0] in "6789"):
+        return jsonify({"ok": False,
+                        "error": "Enter a valid 10-digit mobile number starting 6-9."}), 400
+    if not get_case(case_id):
+        return jsonify({"ok": False, "error": "case not found"}), 404
+    if not update_case_mobile(case_id, raw):
+        return jsonify({"ok": False,
+                        "error": "This case is closed/purged and can no longer be edited."}), 403
+    insert_audit_log(session["user_id"], "case_mobile_edited", f"case={case_id}")
+    return jsonify({"ok": True, "mobile": raw})
 
 
 @dashboard_bp.route("/api/batch/<batch_id>/delete", methods=["POST"])

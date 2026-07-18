@@ -169,6 +169,25 @@ def update_case_fields(case_id: str, name: str, mobile: str,
         conn.commit()
 
 
+def update_case_mobile(case_id: str, mobile: str) -> bool:
+    """Correct ONLY a case's mobile number (re-encrypted at rest). Everything
+    else about a case stays immutable (see routes.update_case). OCR misses/mis-
+    reads ~1 in 7 mobiles on a scanned page, and a wrong number means the customer
+    can never be reached, so this one field must be fixable without re-uploading
+    the whole batch. Refuses on a purged/closed case so PII is never re-introduced
+    after the DPDP purge. Returns False if the case is missing or purged."""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT pii_purged_at FROM customer_cases WHERE case_id=?", (case_id,)
+        ).fetchone()
+        if row is None or row["pii_purged_at"]:
+            return False
+        conn.execute("UPDATE customer_cases SET mobile=? WHERE case_id=?",
+                     (crypto.encrypt_field(mobile), case_id))
+        conn.commit()
+    return True
+
+
 def purge_case_pii(case_id: str) -> None:
     """Irreversibly clear a case's identifying fields once its business-tracking
     lifecycle reaches the terminal 'case_closed' state (RBI/DPDP: don't retain
