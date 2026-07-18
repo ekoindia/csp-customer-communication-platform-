@@ -292,39 +292,6 @@ def earnings():
     return render_template("admin_earnings.html", rows=rows, total_earnings=tot)
 
 
-@ui_bp.route("/setup", methods=["GET", "POST"])
-@login_required
-def setup_files():
-    """Distribute the install package for BRAND-NEW CSPs. Upload the
-    CSP_Platform.zip (built by MAKE_ZIP.ps1) once here; the admin portal then
-    hosts it at a public download link (no API key exists yet for a CSP that
-    hasn't installed anything) and can hand out a ready CSP_Setup.bat with
-    that link already baked in — nothing to edit by hand per CSP."""
-    if request.method == "POST":
-        f = request.files.get("package")
-        if not f or not f.filename:
-            flash("Choose a .zip file first.")
-            return redirect(url_for("admin_ui.setup_files"))
-        version = request.form.get("version", "").strip()
-        info = _save_release(f, "install", version)
-        flash(f"Install package uploaded: {info['filename']} ({info['size'] // 1024} KB).")
-        return redirect(url_for("admin_ui.setup_files"))
-
-    with get_connection() as conn:
-        latest = conn.execute(
-            "SELECT * FROM releases WHERE kind='install' ORDER BY id DESC LIMIT 1"
-        ).fetchone()
-        history = conn.execute(
-            "SELECT * FROM releases WHERE kind='install' ORDER BY id DESC LIMIT 10"
-        ).fetchall()
-    download_url = None
-    if latest:
-        download_url = url_for("admin_ui.download_release", release_id=latest["id"],
-                               filename=latest["filename"], _external=True)
-    return render_template("admin_setup.html", latest=latest, history=history,
-                           download_url=download_url)
-
-
 @ui_bp.route("/setup/csp_setup_bat")
 @login_required
 def download_csp_setup_bat():
@@ -396,86 +363,6 @@ def download_release(release_id, filename):
         return ("not found", 404)
     return send_from_directory(RELEASES_DIR, row["stored_name"],
                                as_attachment=True, download_name=row["filename"])
-
-
-@ui_bp.route("/updates", methods=["GET", "POST"])
-@login_required
-def updates():
-    """Publish a new app version (URL + sha256) that every CSP picks up on its
-    next /sync, and optionally push an 'update now' command to one/all CSPs.
-    Eko can't reach into a CSP PC, so this is the publish side of pull-based
-    updates. Two ways to publish: paste an externally-hosted URL + hash, or
-    upload the .zip right here (sha256 computed automatically, hosted at the
-    same public /downloads/ route used for install packages)."""
-    from admin_dashboard.api import queue_command
-
-    if request.method == "POST":
-        act = request.form.get("action")
-
-        if act == "publish_file":
-            ver = request.form.get("version", "").strip()
-            f = request.files.get("package")
-            if not f or not f.filename:
-                flash("Choose a .zip file first.")
-                return redirect(url_for("admin_ui.updates"))
-            info = _save_release(f, "update", ver)
-            eff_ver = info["version"]
-            if not eff_ver:
-                flash("Could not determine a version: the .zip has no VERSION file "
-                      "and no version was typed. CSPs cannot pick this up. Rebuild "
-                      "the package (MAKE_ZIP.ps1 includes VERSION) or type a version.")
-                return redirect(url_for("admin_ui.updates"))
-            download_url = url_for("admin_ui.download_release", release_id=info["id"],
-                                   filename=info["filename"], _external=True)
-            with get_connection() as conn:
-                for k, v in (("latest_version", eff_ver), ("update_url", download_url),
-                             ("update_sha256", info["sha256"])):
-                    conn.execute(
-                        "INSERT INTO server_config (key,value) VALUES (?,?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
-                conn.commit()
-            note = "" if (ver in ("", eff_ver)) else f" (typed '{ver}' overridden by package's VERSION)"
-            flash(f"Published version {eff_ver} from {info['filename']} "
-                 f"(sha256 computed automatically){note}. CSPs will stage it on next sync.")
-            return redirect(url_for("admin_ui.updates"))
-
-        with get_connection() as conn:
-            if act == "publish":
-                ver = request.form.get("version", "").strip()
-                url = request.form.get("update_url", "").strip()
-                sha = request.form.get("update_sha256", "").strip()
-                for k, v in (("latest_version", ver), ("update_url", url),
-                             ("update_sha256", sha)):
-                    conn.execute(
-                        "INSERT INTO server_config (key,value) VALUES (?,?) "
-                        "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
-                conn.commit()
-                flash(f"Published version {ver}. CSPs will stage it on next sync.")
-            elif act == "push":
-                target = request.form.get("target", "").strip()
-                ids = ([target] if target and target != "__all__"
-                       else [r["csp_id"] for r in conn.execute(
-                           "SELECT csp_id FROM csps").fetchall()])
-                for cid in ids:
-                    queue_command(cid, "update_software",
-                                  json.dumps({"note": "apply on next restart"}))
-                flash(f"Queued 'update now' for {len(ids)} CSP(s).")
-        return redirect(url_for("admin_ui.updates"))
-
-    with get_connection() as conn:
-        cfg = {r["key"]: r["value"] for r in conn.execute(
-            "SELECT key, value FROM server_config").fetchall()}
-        csps = conn.execute(
-            "SELECT csp_id, name, version, last_seen FROM csps ORDER BY name, csp_id"
-        ).fetchall()
-    fleet = []
-    for c in csps:
-        d = dict(c)
-        d["online"] = _is_online(c["last_seen"])
-        d["current"] = (c["version"] == cfg.get("latest_version"))
-        fleet.append(d)
-    return render_template("admin_updates.html", cfg=cfg, fleet=fleet,
-                           behind=sum(1 for c in fleet if not c["current"]))
 
 
 @ui_bp.route("/whatsapp")

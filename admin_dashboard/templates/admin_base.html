@@ -87,8 +87,6 @@
       <a href="{{ url_for('admin_ui.campaigns') }}"    class="{{ 'active' if ep=='admin_ui.campaigns' }}">Campaigns</a>
       <a href="{{ url_for('admin_ui.earnings') }}"     class="{{ 'active' if ep=='admin_ui.earnings' }}">Earnings</a>
       <a href="{{ url_for('admin_ui.api_keys') }}"     class="{{ 'active' if ep=='admin_ui.api_keys' }}">API Keys</a>
-      <a href="{{ url_for('admin_ui.setup_files') }}"  class="{{ 'active' if ep=='admin_ui.setup_files' }}">New CSP Setup</a>
-      <a href="{{ url_for('admin_ui.updates') }}"      class="{{ 'active' if ep=='admin_ui.updates' }}">Updates</a>
       <a href="{{ url_for('admin_ui.whatsapp_health') }}" class="{{ 'active' if ep=='admin_ui.whatsapp_health' }}">WhatsApp Health</a>
     </nav>
     <div class="foot">{{ session.get('admin_login') }}<br>
