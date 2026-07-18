@@ -38,6 +38,11 @@ _UPDATE_BASE = os.environ.get("LOCALAPPDATA") or tempfile.gettempdir()
 UPDATE_DIR = os.path.join(_UPDATE_BASE, "CSP_Platform", "update")
 STAGING = os.path.join(UPDATE_DIR, "staged")
 PENDING = os.path.join(UPDATE_DIR, "pending.json")
+# Every apply first COPIES the files it is about to overwrite/remove into a
+# timestamped folder here (the "recycle bin"), so a bad release can be rolled
+# back instead of being lost. Only the newest _KEEP_BACKUPS are retained.
+BACKUPS = os.path.join(UPDATE_DIR, "backups")
+_KEEP_BACKUPS = 2
 
 # Top-level paths an update must NEVER overwrite (the CSP's own data/config).
 _PRESERVE = {
@@ -136,30 +141,142 @@ def pending_version():
         return None
 
 
+def _timestamp() -> str:
+    import time
+    return time.strftime("%Y%m%d_%H%M%S")
+
+
+def _prune_old_backups():
+    """Keep only the newest _KEEP_BACKUPS backup folders; delete older ones."""
+    try:
+        if not os.path.isdir(BACKUPS):
+            return
+        dirs = sorted(d for d in os.listdir(BACKUPS)
+                      if os.path.isdir(os.path.join(BACKUPS, d)))
+        for d in dirs[:-_KEEP_BACKUPS] if len(dirs) > _KEEP_BACKUPS else []:
+            shutil.rmtree(os.path.join(BACKUPS, d), ignore_errors=True)
+    except Exception:
+        pass
+
+
 def apply_pending() -> dict:
-    """Copy staged CODE over the app (skipping CSP data/config/session), then
-    clear the staging + pending marker. Safe to call at every startup — a no-op
-    when nothing is staged. Run this BEFORE the app imports its own modules."""
+    """Copy staged CODE over the app, then clear the staging + pending marker.
+    Safe to call at every startup — a no-op when nothing is staged. Run this
+    BEFORE the app imports its own modules.
+
+    Data safety (never touched): everything in _PRESERVE / _PRESERVE_NESTED —
+    config.py, the SQLite DB, uploads, secrets, the WhatsApp session.
+
+    Two safeguards beyond a plain copy:
+      • BACKUP ("recycle bin"): every file about to be overwritten OR pruned is
+        first copied into BACKUPS/<timestamp>/ so a bad release can be rolled
+        back (see rollback_last). Only the newest _KEEP_BACKUPS are kept.
+      • PRUNE orphans: a code file that the NEW release no longer ships is
+        removed, so a renamed/deleted module can't linger and get imported.
+        Pruning is confined to directories the package itself populates, and
+        never touches preserved data/config/session paths or *.log files.
+    """
     if not os.path.isfile(PENDING) or not os.path.isdir(STAGING):
         return {"ok": True, "applied": False}
     version = pending_version()
-    copied = 0
+    backup_dir = os.path.join(BACKUPS, _timestamp())
+    copied = pruned = 0
+
+    def _backup(rel: str):
+        cur = os.path.join(APP_ROOT, rel)
+        if os.path.isfile(cur):
+            b = os.path.join(backup_dir, rel)
+            os.makedirs(os.path.dirname(b), exist_ok=True)
+            shutil.copy2(cur, b)
+
     try:
+        # 1) Index the new package: its files and the directories it manages.
+        staged_rel = set()
+        staged_dirs = {""}
         for dirpath, _dirs, files in os.walk(STAGING):
+            rd = os.path.relpath(dirpath, STAGING)
+            rd = "" if rd == "." else rd
+            staged_dirs.add(rd)
+            for name in files:
+                staged_rel.add(os.path.relpath(os.path.join(dirpath, name), STAGING))
+
+        # 2) Copy new code in, backing up each file we overwrite.
+        for rel in sorted(staged_rel):
+            if _is_preserved(rel):
+                continue
+            dst = os.path.join(APP_ROOT, rel)
+            if os.path.isfile(dst):
+                _backup(rel)
+            os.makedirs(os.path.dirname(dst), exist_ok=True)
+            shutil.copy2(os.path.join(STAGING, rel), dst)
+            copied += 1
+
+        # 3) Prune orphans: code files under a package-managed dir that the new
+        #    release no longer contains. Skips preserved subtrees entirely (also
+        #    keeps the walk off the huge .venv/.git) and leaves *.log alone.
+        for dirpath, dirs, files in os.walk(APP_ROOT):
+            rd = os.path.relpath(dirpath, APP_ROOT)
+            rd = "" if rd == "." else rd
+            dirs[:] = [d for d in dirs
+                       if not _is_preserved(os.path.join(rd, d) if rd else d)]
+            if rd not in staged_dirs:      # dir the package doesn't manage -> leave
+                continue
+            for name in files:
+                rel = name if rd == "" else os.path.join(rd, name)
+                if rel in staged_rel or _is_preserved(rel) or name.endswith(".log"):
+                    continue
+                _backup(rel)
+                try:
+                    os.remove(os.path.join(APP_ROOT, rel))
+                    pruned += 1
+                except Exception:
+                    pass
+
+        shutil.rmtree(STAGING, ignore_errors=True)
+        os.remove(PENDING)
+        _prune_old_backups()
+        return {"ok": True, "applied": True, "version": version,
+                "files": copied, "pruned": pruned, "backup": backup_dir}
+    except Exception as e:
+        return {"ok": False, "applied": False, "error": str(e)}
+
+
+def list_backups() -> list:
+    """Newest-first list of available rollback points (timestamp folder names)."""
+    try:
+        return sorted((d for d in os.listdir(BACKUPS)
+                       if os.path.isdir(os.path.join(BACKUPS, d))), reverse=True)
+    except Exception:
+        return []
+
+
+def rollback_last(which: str = None) -> dict:
+    """Restore the code saved in a backup folder (default: the most recent) back
+    over the app — the escape hatch when an update misbehaves. Only restores
+    files that were backed up; never touches preserved data/config/session.
+    Never raises."""
+    try:
+        backups = list_backups()
+        if not backups:
+            return {"ok": False, "error": "no backups to roll back to"}
+        target = which or backups[0]
+        root = os.path.join(BACKUPS, target)
+        if not os.path.isdir(root):
+            return {"ok": False, "error": f"backup not found: {target}"}
+        restored = 0
+        for dirpath, _dirs, files in os.walk(root):
             for name in files:
                 src = os.path.join(dirpath, name)
-                rel = os.path.relpath(src, STAGING)
+                rel = os.path.relpath(src, root)
                 if _is_preserved(rel):
                     continue
                 dst = os.path.join(APP_ROOT, rel)
                 os.makedirs(os.path.dirname(dst), exist_ok=True)
                 shutil.copy2(src, dst)
-                copied += 1
-        shutil.rmtree(STAGING, ignore_errors=True)
-        os.remove(PENDING)
-        return {"ok": True, "applied": True, "version": version, "files": copied}
+                restored += 1
+        return {"ok": True, "version": target, "files": restored}
     except Exception as e:
-        return {"ok": False, "applied": False, "error": str(e)}
+        return {"ok": False, "error": str(e)}
 
 
 def refresh_dependencies() -> dict:
@@ -298,12 +415,21 @@ if __name__ == "__main__":
         res = apply_pending()
         if res.get("applied"):
             print(f"[updater] applied update -> {res.get('version')} "
-                  f"({res.get('files')} files)")
+                  f"({res.get('files')} files, {res.get('pruned', 0)} orphan(s) "
+                  f"pruned; backup: {res.get('backup')})")
             # New code is in place; bring its dependencies up to date before the
             # app starts (cheap no-op unless this release added/changed a dep).
             refresh_dependencies()
         elif not res.get("ok"):
             print(f"[updater] update apply FAILED: {res.get('error')}")
+    elif "--rollback" in sys.argv:
+        res = rollback_last()
+        if res.get("ok"):
+            print(f"[updater] rolled back to {res.get('version')} "
+                  f"({res.get('files')} files restored)")
+        else:
+            print(f"[updater] rollback FAILED: {res.get('error')}")
+            sys.exit(1)
     elif "--apply-zip" in sys.argv:
         i = sys.argv.index("--apply-zip")
         zpath = sys.argv[i + 1] if i + 1 < len(sys.argv) else ""
