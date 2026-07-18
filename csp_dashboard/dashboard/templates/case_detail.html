@@ -82,7 +82,21 @@
           <table class="table table-sm mb-0">
             <tbody>
               <tr><td class="text-muted" style="width:40%" data-i18n="cd.account">Account number</td><td>{{ case.account_number or "—" }}</td></tr>
-              <tr><td class="text-muted" data-i18n="cd.mobile">Mobile</td><td class="fw-semibold">{% if case.mobile %}<span class="masked-mobile">{{ case.mobile }}</span>{% elif case.pii_purged_at %}— record purged —{% else %}— not reachable —{% endif %}</td></tr>
+              <tr><td class="text-muted" data-i18n="cd.mobile">Mobile</td>
+                <td class="fw-semibold">
+                  {% if case.pii_purged_at %}— record purged —
+                  {% else %}
+                    <span id="mobView">{% if case.mobile %}<span class="masked-mobile">{{ case.mobile }}</span>{% else %}<span class="text-danger">— not set —</span>{% endif %}</span>
+                    <button type="button" class="btn btn-sm btn-link p-0 ms-2" onclick="editMobile()" data-i18n="cd.editmob">Edit</button>
+                    <span id="mobEdit" style="display:none">
+                      <input id="mobInput" type="tel" inputmode="numeric" maxlength="10"
+                             class="form-control form-control-sm d-inline-block" style="width:130px"
+                             value="{{ case.mobile or '' }}" placeholder="10-digit mobile">
+                      <button type="button" class="btn btn-sm btn-primary py-0" onclick="saveMobile()" data-i18n="cd.save">Save</button>
+                      <button type="button" class="btn btn-sm btn-outline-secondary py-0" onclick="cancelMobile()" data-i18n="cd.cancel">Cancel</button>
+                    </span>
+                  {% endif %}
+                </td></tr>
               <tr><td class="text-muted" data-i18n="cd.band">Balance band</td><td>{{ case.balance_band }} ({{ case.band_label }})</td></tr>
               <tr><td class="text-muted" data-i18n="cd.village">Village</td><td>{{ case.village or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.batch">Batch</td><td class="small">{{ case.batch_id }}</td></tr>
@@ -221,9 +235,29 @@ document.addEventListener("keydown", (e) => {
   }
 });
 
-// Customer records are locked after confirmation — there is no edit/save path
-// on this screen (the /api/case/<id>/update endpoint now refuses with 403).
-// Corrections are made on the review screen before "Confirm & Create Cases".
+// Customer records are locked after confirmation, with ONE exception: the mobile
+// number can be corrected here (OCR misses ~1 in 7 mobiles; a wrong number = the
+// customer is never reached). Name/account/message stay immutable.
+function editMobile() {
+  document.getElementById("mobView").style.display = "none";
+  document.getElementById("mobEdit").style.display = "inline";
+  const inp = document.getElementById("mobInput");
+  inp.focus(); inp.select();
+}
+function cancelMobile() { window.location.reload(); }
+function saveMobile() {
+  const m = (document.getElementById("mobInput").value || "").replace(/\D/g, "");
+  if (!(m.length === 10 && "6789".includes(m[0]))) {
+    alert("Enter a valid 10-digit mobile number starting 6-9."); return;
+  }
+  fetch(`/api/case/{{ case.case_id }}/mobile`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mobile: m })
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { window.location.reload(); }
+    else { alert(d.error || "Could not save the mobile number."); }
+  }).catch(() => alert("Network error while saving."));
+}
 
 function approveRest() {
   if (!confirm("Approve ALL remaining reachable, non-flagged cases in this batch automatically? You can then send them from the review sheet.")) return;
