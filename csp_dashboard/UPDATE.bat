@@ -33,6 +33,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
+REM Ensure the "CSP Platform" desktop/Start-Menu icon exists (run as a SEPARATE
+REM process so it uses the freshly-updated code, and lands on the CSP's own
+REM desktop even if the original install put it on an admin account's desktop).
+"%PY%" -m core.updater --make-icon
+
 echo.
 echo [OK] Update done. Restarting the app on the new version...
 echo     If a dashboard/WhatsApp window from before is still open, close it.
