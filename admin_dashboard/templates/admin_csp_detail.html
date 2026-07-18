@@ -80,6 +80,21 @@
 {% endfor %}
 
 <div class="panel">
+  <h2>Software updates ({{ update_count }})</h2>
+  <table>
+    <thead><tr><th>From</th><th>To</th><th>When (UTC)</th></tr></thead>
+    <tbody>
+    {% for u in updates %}
+      <tr><td>{{ u.from_version or '(first install)' }}</td><td>{{ u.to_version }}</td><td>{{ u.ts }}</td></tr>
+    {% else %}
+      <tr><td colspan="3" style="color:var(--muted)">No updates recorded yet.</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+  <p class="note">How many times this CSP updated the app, and when (detected when the reported version changes). Software-only — no customer data.</p>
+</div>
+
+<div class="panel">
   <h2>Recent activity (event types only)</h2>
   <table>
     <thead><tr><th>Event</th><th>Time (UTC)</th></tr></thead>
