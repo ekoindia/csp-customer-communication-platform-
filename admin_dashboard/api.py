@@ -136,7 +136,13 @@ def report():
         # Full DxDiag machine report (machine/system info only, not customer PII).
         dxdiag = str(body.get("dxdiag") or "")[:120000]
 
-        exists = conn.execute("SELECT 1 FROM csps WHERE csp_id=?", (csp_id,)).fetchone()
+        exists = conn.execute("SELECT version FROM csps WHERE csp_id=?", (csp_id,)).fetchone()
+        # Record a software update: the reported version changed since last beat
+        # (the CSP ran UPDATE.bat and picked up a new build). Software-only info.
+        if exists and version and (exists["version"] or "") != version:
+            conn.execute(
+                "INSERT INTO update_events (csp_id, from_version, to_version, ts) "
+                "VALUES (?,?,?,?)", (csp_id, exists["version"] or "", version, now))
         if exists:
             conn.execute(
                 """UPDATE csps SET name=?, version=?, install_id=?,

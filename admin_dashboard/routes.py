@@ -214,6 +214,9 @@ def csp_detail(csp_id):
         audit = conn.execute(
             "SELECT type, ts FROM audit WHERE csp_id=? ORDER BY id DESC LIMIT 50",
             (csp_id,)).fetchall()
+        updates = conn.execute(
+            "SELECT from_version, to_version, ts FROM update_events WHERE csp_id=? "
+            "ORDER BY id DESC LIMIT 50", (csp_id,)).fetchall()
     if not c:
         return "CSP not found", 404
     # group bands by (campaign_id, month) so each progress row shows its bars
@@ -224,7 +227,8 @@ def csp_detail(csp_id):
     d = dict(c); d["online"] = _is_online(c["last_seen"])
     if label and (label["name"] or "").strip():   # admin-set label wins over self-reported
         d["name"] = label["name"].strip()
-    return render_template("admin_csp_detail.html", c=d, progress=prog, audit=audit)
+    return render_template("admin_csp_detail.html", c=d, progress=prog, audit=audit,
+                           updates=updates, update_count=len(updates))
 
 
 @ui_bp.route("/campaigns")

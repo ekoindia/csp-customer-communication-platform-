@@ -101,6 +101,18 @@ CREATE TABLE IF NOT EXISTS audit (
     ts          TEXT NOT NULL
 );
 
+-- Software update history per CSP. A row is added whenever a CSP's reported app
+-- version CHANGES between heartbeats (i.e. it ran the update and got a new build)
+-- so the admin can see how many times and when each CSP updated. Software-only
+-- info (versions + timestamps), no customer/campaign data.
+CREATE TABLE IF NOT EXISTS update_events (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    csp_id       TEXT NOT NULL,
+    from_version TEXT,
+    to_version   TEXT,
+    ts           TEXT NOT NULL
+);
+
 -- Server-set config the CSPs read via /sync (e.g. latest_version for updates).
 CREATE TABLE IF NOT EXISTS server_config (
     key         TEXT PRIMARY KEY,
