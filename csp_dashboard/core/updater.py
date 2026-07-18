@@ -279,6 +279,44 @@ def rollback_last(which: str = None) -> dict:
         return {"ok": False, "error": str(e)}
 
 
+def ensure_desktop_icon() -> dict:
+    """Create/repair the "CSP Platform" Desktop + Start-Menu shortcut after an
+    update. INSTALL.bat makes it at install time, but it runs ELEVATED, so the
+    icon can land on the ADMIN account's desktop and look "missing" to the CSP
+    (this happened on a real machine). An update runs as the CSP's own user, so
+    recreating it here puts it on the RIGHT desktop, and also restores it if it
+    was ever deleted. Windows-only, best-effort — never raises, never blocks."""
+    if os.name != "nt":
+        return {"ok": False, "error": "not windows"}
+    vbs = os.path.join(APP_ROOT, "CSP_Platform.vbs")
+    if not os.path.isfile(vbs):
+        return {"ok": False, "error": "CSP_Platform.vbs not found"}
+    icon = os.path.join(APP_ROOT, "installer", "CSP_Platform.ico")
+    if not os.path.isfile(icon):
+        icon = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"),
+                            "System32", "shell32.dll") + ",13"
+    # Paths passed via env vars so no quoting/backslash issues inside the script.
+    env = {**os.environ, "CSP_VBS": vbs, "CSP_ICON": icon, "CSP_WD": APP_ROOT}
+    ps = (
+        "$w=New-Object -ComObject WScript.Shell; $made=0;"
+        "foreach($f in 'Desktop','Programs','CommonDesktopDirectory','CommonPrograms'){"
+        " try{ $d=[Environment]::GetFolderPath($f);"
+        " if($d){ $s=$w.CreateShortcut((Join-Path $d 'CSP Platform.lnk'));"
+        " $s.TargetPath='wscript.exe'; $s.Arguments='\"'+$env:CSP_VBS+'\"';"
+        " $s.WorkingDirectory=$env:CSP_WD; $s.IconLocation=$env:CSP_ICON;"
+        " $s.Description='CSP Communication Platform'; $s.Save(); $made++ } }catch{} };"
+        "Write-Host $made"
+    )
+    try:
+        import subprocess
+        r = subprocess.run(["powershell", "-NoProfile", "-Command", ps],
+                           env=env, timeout=60, capture_output=True, text=True)
+        made = (r.stdout or "").strip()
+        return {"ok": made not in ("", "0"), "locations": made}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
 def refresh_dependencies() -> dict:
     """After an update swaps in new CODE, make sure the installed Python and Node
     libraries still match the (possibly changed) requirements-lite.txt /
@@ -407,10 +445,16 @@ if __name__ == "__main__":
         if res.get("applied"):
             print(f"[updater] updated from GitHub ({res.get('files')} files)")
             refresh_dependencies()
+            ic = ensure_desktop_icon()
+            print(f"[updater] app icon: {'restored' if ic.get('ok') else 'skipped ('+str(ic.get('error'))+')'}")
         elif res.get("ok"):
             print("[updater] already up to date (nothing changed).")
+            ensure_desktop_icon()   # still repair a missing icon on a no-op update
         else:
             print(f"[updater] GitHub update FAILED: {res.get('error')}")
+    elif "--make-icon" in sys.argv:
+        ic = ensure_desktop_icon()
+        print(f"[updater] app icon: {'created' if ic.get('ok') else 'FAILED ('+str(ic.get('error'))+')'}")
     elif "--apply-if-pending" in sys.argv:
         res = apply_pending()
         if res.get("applied"):
@@ -420,6 +464,7 @@ if __name__ == "__main__":
             # New code is in place; bring its dependencies up to date before the
             # app starts (cheap no-op unless this release added/changed a dep).
             refresh_dependencies()
+            ensure_desktop_icon()   # restore the icon on the CSP's own desktop
         elif not res.get("ok"):
             print(f"[updater] update apply FAILED: {res.get('error')}")
     elif "--rollback" in sys.argv:
