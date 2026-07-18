@@ -1,5 +1,6 @@
 {% extends "admin_base.html" %}
 {% block title %}{{ c.name or c.csp_id }} - Eko Admin Portal{% endblock %}
+{% block autorefresh %}10{% endblock %}
 {% block body %}
 <p class="sub"><a href="{{ url_for('admin_ui.fleet') }}" style="color:var(--soft)">&larr; Fleet</a></p>
 <h1>{{ c.name or c.csp_id }}</h1>
