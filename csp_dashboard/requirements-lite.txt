@@ -42,3 +42,13 @@ psutil==5.9.8
 # account/mobile digits accurately on the 4 GB CSP box. Falls back to Tesseract
 # if absent, so the app still runs without it.
 onnxruntime==1.19.2
+# OnnxTR = docTR's detection+recognition models on ONNX Runtime (NO PyTorch).
+# This is the ACCURATE scanned-OCR engine for the 4 GB CPU box: detection finds
+# every table row (Tesseract could not) and reads names; account/mobile digits
+# still come from the custom crnn.onnx above. ~700 MB peak, fits 4 GB. Models are
+# BUNDLED in core/models/ (db_mobilenet_v3_large + crnn_mobilenet_v3_small), so
+# nothing is downloaded at run time (DPDP-safe). Base package (not [cpu]) so it
+# reuses the onnxruntime pinned above and does NOT pull a second opencv. Its
+# small deps (scipy, pyclipper, rapidfuzz, ...) are resolved automatically;
+# pypdfium2 4.30.0 above already satisfies it. Falls back to Tesseract if absent.
+onnxtr==0.8.1

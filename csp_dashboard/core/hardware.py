@@ -101,18 +101,33 @@ def torch_threads() -> int:
 
 
 def resolve_ocr_engine() -> str:
-    """Return the OCR engine to use for scanned pages: "doctr" | "tesseract" |
-    "paddle". An explicit config.OCR_ENGINE wins; "auto" picks by RAM."""
+    """Return the OCR engine for scanned pages: "doctr" | "onnxtr" | "tesseract"
+    | "paddle". An explicit config.OCR_ENGINE wins; "auto" picks by RAM.
+
+    "auto" policy:
+      • big box with RAM free  -> docTR (PyTorch, dev/high-end machine);
+      • otherwise (the 4 GB CPU-only CSP box) -> ONNXTR when its bundled models
+        are present — deep-learning accuracy at ~700 MB, NO PyTorch — else the
+        light Tesseract reader as a last resort.
+    """
     engine = str(getattr(config, "OCR_ENGINE", "auto")).lower()
-    if engine in ("doctr", "tesseract", "paddle"):
+    if engine in ("doctr", "tesseract", "paddle", "onnxtr"):
         return engine  # explicit override wins, guards skipped
     threshold = getattr(config, "OCR_RAM_THRESHOLD_GB", 6)
     min_free = getattr(config, "DOCTR_MIN_FREE_RAM_GB", 2.5)
     # docTR only when the machine is BOTH big enough overall AND has enough free
     # RAM right now — so a low-RAM box (or a bigger box under memory pressure)
-    # always lands on the light Tesseract path and never OOMs.
+    # never OOMs on PyTorch.
     if total_ram_gb() >= threshold and available_ram_gb() >= min_free:
         return "doctr"
+    # Low-RAM / CPU box: prefer the accurate ONNX Runtime engine (fits 4 GB, no
+    # PyTorch) when its models are bundled; fall back to Tesseract otherwise.
+    try:
+        from core import ocr_table
+        if ocr_table.onnxtr_available():
+            return "onnxtr"
+    except Exception:
+        pass
     return "tesseract"
 
 

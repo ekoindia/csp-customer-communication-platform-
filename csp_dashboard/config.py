@@ -60,11 +60,17 @@ MSG91_SENDER_ID = ""
 MSG91_TEMPLATE_ID = ""
 
 # OCR engine for scanned documents.
-#   "auto"      = pick by hardware (see core/hardware.py): docTR if the machine
-#                 has >= OCR_RAM_THRESHOLD_GB of RAM, else Tesseract-only.
+#   "auto"      = pick by hardware (see core/hardware.py): docTR on a big box
+#                 with RAM free; otherwise ONNXTR on the 4 GB CPU box (accurate,
+#                 no PyTorch) when its bundled models are present, else Tesseract.
 #   "doctr"     = force docTR (deep learning, ~1 GB resident) always.
+#   "onnxtr"    = force OnnxTR: docTR's models on ONNX Runtime (~700 MB, NO
+#                 PyTorch). The ACCURATE engine for the 4 GB CPU-only CSP box —
+#                 detection finds every table row and reads names; account/mobile
+#                 digits still come from the custom crnn.onnx. Models bundled in
+#                 core/models/ (offline, DPDP-safe). Feeds the SAME grid logic.
 #   "tesseract" = force the light Tesseract-only reader (~150 MB, no PyTorch) —
-#                 use on a very small CSP PC; feeds the SAME accurate grid logic.
+#                 last-resort fallback; under-reads dense scanned tables.
 #   "paddle"    = PaddleOCR (kept as a future numpy-1 option; not installed).
 # All are fully local/on-premise (DPDP-safe, no cloud). The CSV/Excel/typed-PDF
 # paths never touch any of these — they use no OCR at all. Numeric cells
@@ -73,7 +79,12 @@ MSG91_TEMPLATE_ID = ""
 #
 # NOTE: PaddleOCR 2.7.x is NOT compatible with this project's numpy 2.x stack,
 # so "paddle" needs a dedicated numpy-1 environment. "auto" never selects it.
-OCR_ENGINE = "auto"
+#
+# The shipped default is "auto" so the real 4 GB deploy PC is never forced onto
+# docTR (which would OOM it). For DEV testing on a capable box you can pin an
+# engine for a session WITHOUT editing this file — set the CSP_OCR_ENGINE env
+# var (e.g. CSP_OCR_ENGINE=doctr) before launching. Unset = "auto" as before.
+OCR_ENGINE = os.environ.get("CSP_OCR_ENGINE", "auto").lower()
 
 # Below this much TOTAL RAM, "auto" mode drops docTR (PyTorch ~1 GB) for the
 # Tesseract-only reader so a 4 GB deployment PC doesn't swap/OOM. The real
@@ -96,6 +107,13 @@ TORCH_MAX_THREADS = 4
 # docTR auto-runs on the GPU when CUDA is available and falls back to CPU
 # otherwise — same code on the dev RTX 4060 box and the CPU-only deploy PC.
 DOCTR_RECO_ARCH = "auto"
+
+# OnnxTR model files (used when OCR_ENGINE resolves to "onnxtr"). Empty = use the
+# ones bundled in core/models/ (db_mobilenet_v3_large.onnx + crnn_mobilenet_v3_
+# small.onnx). Override only to point at a different local ONNX file — never a
+# URL (models must stay local for DPDP: no runtime download).
+ONNXTR_DET_PATH = os.environ.get("ONNXTR_DET_PATH", "")
+ONNXTR_RECO_PATH = os.environ.get("ONNXTR_RECO_PATH", "")
 
 # Scanned-PDF render DPI (peak OCR RAM grows with DPI^2). "auto" = 300 on a
 # capable box, OCR_LOW_RAM_DPI on a 4 GB box / when little RAM is free (so a
