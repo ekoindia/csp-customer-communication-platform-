@@ -271,8 +271,9 @@ def _ocr_pdf(path: str, ddir: str, start_idx: int,
         pdf.close()
     # Free the ~1 GB docTR/torch model now the batch is OCR'd, so it doesn't sit
     # resident through send/tracking on a low-RAM CSP PC (no-op if never loaded).
-    from core.ocr_table import release_doctr_model
+    from core.ocr_table import release_doctr_model, release_onnxtr_model
     release_doctr_model()
+    release_onnxtr_model()   # free the ONNX sessions (~600 MB) after the batch too
     return rows, images, span
 
 
@@ -285,8 +286,9 @@ def _ocr_image(path: str, ddir: str, start_idx: int):
     _ensure_ocr_memory()
     img = _downscale_for_ocr(Image.open(path))
     oriented, page_rows, _ = extract_with_image(img)
-    from core.ocr_table import release_doctr_model
+    from core.ocr_table import release_doctr_model, release_onnxtr_model
     release_doctr_model()
+    release_onnxtr_model()   # free the ONNX sessions (~600 MB) after the batch too
     return page_rows, [_save_page(oriented, ddir, start_idx)]
 
 

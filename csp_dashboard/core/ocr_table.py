@@ -19,7 +19,9 @@ here is maximum recall with clean fields, not perfection.
 Local only (Tesseract). No cloud OCR — DPDP safe.
 """
 
+import os
 import re
+import threading
 from typing import List, Dict
 
 import numpy as np
@@ -295,8 +297,126 @@ def _paddle_words(gray_np: np.ndarray):
     return words or None
 
 
-# Benchmark/testing hook: when set to "paddle" or "doctr", _page_words uses ONLY
-# that engine with no fallback, so scripts/ocr_benchmark.py can compare the two
+# ── OnnxTR: docTR's models on ONNX Runtime — deep-learning accuracy, NO PyTorch ──
+# This is the ACCURATE engine for the 4 GB CPU-only CSP box. It runs bundled ONNX
+# models via onnxruntime (~700 MB peak, fits 4 GB) so extraction on a scanned
+# mobile photo is as good as docTR — detection finds EVERY table row (which the
+# old Tesseract path could not), recognition reads names, and account/mobile
+# DIGITS are still read by the tiny custom digit model (core/ocr_onnx). Fully
+# local/offline (models bundled in core/models/, no download at run time) —
+# DPDP-safe. Degrades gracefully: if onnxtr/models are missing, _page_words falls
+# back to Tesseract, so the app never crashes.
+_ONNXTR_MODEL = None
+_ONNXTR_TRIED = False
+_ONNXTR_LOCK = threading.Lock()
+
+
+def _onnxtr_paths():
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    import config
+    det = getattr(config, "ONNXTR_DET_PATH", "") or os.path.join(base, "db_mobilenet_v3_large.onnx")
+    # crnn_vgg16_bn (not the small mobilenet reco): it reads scanned DIGITS far
+    # better (49/53 vs 40/53 clean account numbers on the real page) and, run at
+    # a small recognition batch (ONNXTR_RECO_BS), peaks at only ~640 MB — fits the
+    # 4 GB box. The small mobilenet reco is kept bundled as a lighter option.
+    reco = getattr(config, "ONNXTR_RECO_PATH", "") or os.path.join(base, "crnn_vgg16_bn.onnx")
+    return det, reco
+
+
+def onnxtr_available() -> bool:
+    """True only if onnxtr + onnxruntime import AND both bundled models exist.
+    A LIGHT check (no model load) so hardware.resolve_ocr_engine can call it to
+    decide the engine for a low-RAM box without paying the load cost."""
+    try:
+        import importlib.util
+        if (importlib.util.find_spec("onnxtr") is None
+                or importlib.util.find_spec("onnxruntime") is None):
+            return False
+        det, reco = _onnxtr_paths()
+        return os.path.isfile(det) and os.path.isfile(reco)
+    except Exception:
+        return False
+
+
+def _onnxtr_model():
+    """Lazily build the OnnxTR predictor ONCE from the bundled local ONNX files
+    (no network). Thread caps come from config.TORCH_MAX_THREADS so a 2-core i3
+    isn't oversubscribed. Returns None (never raises) if anything is missing, so
+    the caller falls back to Tesseract."""
+    global _ONNXTR_MODEL, _ONNXTR_TRIED
+    if _ONNXTR_MODEL is not None or _ONNXTR_TRIED:
+        return _ONNXTR_MODEL
+    with _ONNXTR_LOCK:
+        if _ONNXTR_MODEL is not None or _ONNXTR_TRIED:
+            return _ONNXTR_MODEL
+        _ONNXTR_TRIED = True
+        try:
+            import config
+            import onnxruntime as ort
+            from onnxtr.models import ocr_predictor
+            from onnxtr.models.detection import db_mobilenet_v3_large
+            from onnxtr.models.recognition import crnn_vgg16_bn
+            from onnxtr.models.engine import EngineConfig
+            det_path, reco_path = _onnxtr_paths()
+            so = ort.SessionOptions()
+            so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 4))
+            so.inter_op_num_threads = 1
+            cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
+            det = db_mobilenet_v3_large(model_path=det_path, engine_cfg=cfg)
+            reco = crnn_vgg16_bn(model_path=reco_path, engine_cfg=cfg)
+            # Small recognition batch keeps peak RAM ~640 MB on the 4 GB box
+            # (default 128 would spike to ~1.7 GB). det_bs=1: one page at a time.
+            reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
+            _ONNXTR_MODEL = ocr_predictor(det_arch=det, reco_arch=reco,
+                                          assume_straight_pages=True,
+                                          reco_bs=reco_bs, det_bs=1)
+        except Exception as e:
+            print(f"[ocr] OnnxTR unavailable ({e}); will use Tesseract")
+            _ONNXTR_MODEL = None
+    return _ONNXTR_MODEL
+
+
+def release_onnxtr_model():
+    """Drop the OnnxTR sessions to reclaim RAM (mirror release_doctr_model)."""
+    global _ONNXTR_MODEL, _ONNXTR_TRIED
+    _ONNXTR_MODEL = None
+    _ONNXTR_TRIED = False
+    import gc
+    gc.collect()
+
+
+def _onnxtr_words(gray_np: np.ndarray):
+    """Run OnnxTR on one page; return words as {t,x,yc,conf} in PIXEL coords —
+    the SAME shape as _doctr_words/_tesseract_words, so the engine-agnostic grid
+    pipeline (_extract_grid) runs unchanged. None if OnnxTR is unavailable."""
+    model = _onnxtr_model()
+    if model is None:
+        return None
+    H, W = gray_np.shape[:2]
+    rgb = (np.stack([gray_np] * 3, axis=-1).astype("uint8")
+           if gray_np.ndim == 2 else gray_np.astype("uint8"))
+    try:
+        res = model([rgb])
+    except Exception as e:
+        print(f"[ocr] OnnxTR inference failed ({e}); falling back")
+        return None
+    words = []
+    for page in res.pages:
+        for block in page.blocks:
+            for line in block.lines:
+                for w in line.words:
+                    (x0, y0), (x1, y1) = w.geometry
+                    words.append({
+                        "t": w.value,
+                        "x": (x0 + x1) / 2 * W,
+                        "yc": (y0 + y1) / 2 * H,
+                        "conf": float(getattr(w, "confidence", 1.0) or 0.0),
+                    })
+    return words or None
+
+
+# Benchmark/testing hook: when set to "paddle", "doctr" or "onnxtr", _page_words
+# uses ONLY that engine with no fallback, so scripts/ocr_benchmark.py can compare
 # engines head-to-head on the same page. Left None in normal operation.
 _ENGINE_OVERRIDE = None
 
@@ -336,19 +456,29 @@ def _page_words(gray_np: np.ndarray):
     (None, None). On a low-RAM box this resolves to Tesseract and never imports
     torch; on a capable box it uses docTR and falls back to Tesseract only if
     the deep-learning engine is unavailable — so extraction always works."""
-    if _ENGINE_OVERRIDE in ("paddle", "doctr", "tesseract"):
+    if _ENGINE_OVERRIDE in ("paddle", "doctr", "tesseract", "onnxtr"):
         if _ENGINE_OVERRIDE == "paddle":
             words = _paddle_words(gray_np)
         elif _ENGINE_OVERRIDE == "tesseract":
             words = _tesseract_words(gray_np)
+        elif _ENGINE_OVERRIDE == "onnxtr":
+            words = _onnxtr_words(gray_np)
         else:
             words = _doctr_words(gray_np)
         return (words, _ENGINE_OVERRIDE) if words else (None, None)
 
     from core import hardware
     engine = hardware.resolve_ocr_engine()
+    if engine == "onnxtr":
+        # 4 GB CPU box: deep-learning accuracy via ONNX Runtime (no PyTorch).
+        # Falls back to Tesseract only if onnxtr/models are unavailable.
+        words = _onnxtr_words(gray_np)
+        if words:
+            return words, "onnxtr"
+        words = _tesseract_words(gray_np)
+        return (words, "tesseract") if words else (None, None)
     if engine == "tesseract":
-        # Low-RAM machine: stay light, do NOT load PyTorch.
+        # Low-RAM machine without onnxtr: stay light, do NOT load PyTorch.
         words = _tesseract_words(gray_np)
         return (words, "tesseract") if words else (None, None)
 
@@ -372,16 +502,24 @@ def detect_angle(gray: Image.Image) -> int:
     the number of clean 10-digit mobiles found. The probe must stay large enough
     for Tesseract to actually read digits (a too-small probe scores 0 for every
     rotation and falsely defaults to 0). A scanned document has one orientation
-    throughout, so this is detected once per batch and reused for every page."""
-    probe = gray.copy()
-    probe.thumbnail((2000, 2000))
-    best_angle, best_score = 0, -1
-    for angle in (0, 90, 180, 270):
-        rot = probe.rotate(-angle, expand=True)
-        txt = pytesseract.image_to_string(rot, config="--psm 6")
-        score = len([d for d in re.findall(r"\b\d{10}\b", txt) if d and d[0] in "6789"])
-        if score > best_score:
-            best_angle, best_score = angle, score
+    throughout, so this is detected once per batch and reused for every page.
+
+    Probe size is the dominant cost (Tesseract runs 4x). A 1400 px probe was
+    measured to detect orientation correctly and ~2.5x faster than 2000 px on a
+    260-DPI page; only if it finds ZERO mobiles (too small / sparse page) do we
+    retry at full size, so the common case is fast and edge cases stay robust."""
+    for cap in (1400, 2400):
+        probe = gray.copy()
+        probe.thumbnail((cap, cap))
+        best_angle, best_score = 0, -1
+        for angle in (0, 90, 180, 270):
+            rot = probe.rotate(-angle, expand=True)
+            txt = pytesseract.image_to_string(rot, config="--psm 6")
+            score = len([d for d in re.findall(r"\b\d{10}\b", txt) if d and d[0] in "6789"])
+            if score > best_score:
+                best_angle, best_score = angle, score
+        if best_score > 0:
+            return best_angle
     return best_angle
 
 
@@ -599,10 +737,127 @@ def extract_rows_from_pil(pil_img: Image.Image, angle: int = None) -> List[Dict]
     return rows
 
 
+def _extract_content(gray_np: np.ndarray, words, on_row=None):
+    """Content-anchored extraction — RULED-LINE-INDEPENDENT (deep engines only).
+
+    Anchors every row on its ACCOUNT NUMBER (the 11-16 digit token that clusters
+    into one x-band on this bank form) and assigns the other fields by their x
+    position relative to the account / balance / mobile columns. A deep engine
+    (OnnxTR/docTR) gives word boxes precise enough that this needs NO ruled lines,
+    so it works uniformly even on pages where line detection under- or over-counts
+    columns — the exact failure that made the ruled-line grid drop rows or double
+    them on some pages. Measured across a full 29-page scan: account 100%, name
+    99%, band 95%, mobile 85% (vs 82/82/81/70% for the ruled-line path), with no
+    page over/under-extracting. Returns rows, or None if too few account tokens to
+    anchor (caller falls back to the ruled-line grid)."""
+    H, W = gray_np.shape[:2]
+    accts = [w for w in words if 11 <= len(_clean_digits(w["t"])) <= 16]
+    if len(accts) < 5:
+        return None
+    ax = float(np.median([w["x"] for w in accts]))
+    accts = [w for w in accts if abs(w["x"] - ax) < 0.09 * W]   # drop stray long numbers
+    accts.sort(key=lambda w: w["yc"])
+    ys = [w["yc"] for w in accts]
+    gaps = [ys[i + 1] - ys[i] for i in range(len(ys) - 1)]
+    h = float(np.median(gaps)) if gaps else 30.0
+    # One anchor per row: merge account boxes closer than half a row (a split read).
+    anchors, arec = [], []
+    for w in accts:
+        if not anchors or w["yc"] - anchors[-1] > h * 0.5:
+            anchors.append(w["yc"]); arec.append(w)
+    if len(anchors) < 3:
+        return None
+    mobs = [w for w in words if _valid_mobile(w["t"])]
+    mx = float(np.median([w["x"] for w in mobs])) if mobs else ax + 0.40 * W
+    bands = [w for w in words if _BAND_RE.search(w["t"])]
+    bx = float(np.median([w["x"] for w in bands])) if bands else ax + 0.15 * W
+
+    recs = [{"account_number": _clean_digits(arec[i]["t"]), "name": "",
+             "balance_band": "", "father_name": "", "mobile": "",
+             "taluka": "", "village": "", "address": "", "_raw": "",
+             "_nm": [], "_fa": [], "_tl": []} for i in range(len(anchors))]
+
+    def nearest(y):
+        best, bd = None, h * 0.6
+        for i, ay in enumerate(anchors):
+            d = abs(y - ay)
+            if d < bd:
+                bd, best = d, i
+        return best
+
+    for w in words:
+        i = nearest(w["yc"])
+        if i is None:
+            continue
+        t, x = w["t"], w["x"]
+        r = recs[i]
+        if _BAND_RE.search(t) and not r["balance_band"] and abs(x - bx) < 0.15 * W:
+            r["balance_band"] = _BAND_RE.search(t).group(0).replace(" ", "")
+        elif _valid_mobile(t) and abs(x - mx) < 0.12 * W and not r["mobile"]:
+            r["mobile"] = _valid_mobile(t)
+        elif x > mx:
+            r["_tl"].append((x, t))
+        elif _is_word(t) and ax < x < bx - 0.01 * W:
+            r["_nm"].append((x, t))
+        elif _is_word(t) and bx <= x <= mx:
+            r["_fa"].append((x, t))
+
+    # Recover mobiles the engine didn't tokenise (a faint/split mobile leaves the
+    # cell blank): re-read just that one cell — row anchor Y x mobile column X —
+    # with a digit-only Tesseract pass, then the custom digit model. Runs ONLY on
+    # blank-mobile rows, so it's cheap. mobile = wrong person contacted, so this
+    # extra check is worth it.
+    mob_half = 0.09 * W
+    x0m, x1m = max(0, int(mx - mob_half)), min(W, int(mx + mob_half))
+    for i, r in enumerate(recs):
+        if r["mobile"]:
+            continue
+        ay = anchors[i]
+        y0, y1 = max(0, int(ay - h * 0.45)), min(H, int(ay + h * 0.45))
+        if y1 - y0 < 4 or x1m - x0m < 4:
+            continue
+        cand = _valid_mobile(_clean_digits(
+            _ocr_cell(gray_np, y0, y1, x0m, x1m, whitelist="0123456789")))
+        if not cand:
+            try:
+                from core import ocr_onnx
+                cand = _valid_mobile(_clean_digits(ocr_onnx.recognize(gray_np[y0:y1, x0m:x1m])))
+            except Exception:
+                cand = ""
+        if cand:
+            r["mobile"] = cand
+
+    for k, r in enumerate(recs):
+        r["name"] = " ".join(t for _, t in sorted(r["_nm"]))[:40].upper().strip()
+        r["father_name"] = " ".join(t for _, t in sorted(r["_fa"]))[:40].upper().strip()
+        fields = _split_trailing_fields(" ".join(t for _, t in sorted(r["_tl"])))
+        r["taluka"], r["village"], r["address"] = fields["taluka"], fields["village"], fields["address"]
+        for key in ("_nm", "_fa", "_tl"):
+            r.pop(key, None)
+        if on_row:
+            on_row(k + 1, len(recs))
+    out = [r for r in recs if r["account_number"] or r["name"] or r["mobile"]]
+    return out or None
+
+
 def _extract_from_oriented(gray: Image.Image, on_row=None) -> List[Dict]:
-    """Primary path: account-anchored grid cell OCR (accurate, all rows).
-    Falls back to word-clustering only if the ruled grid can't be found."""
+    """Deep engines (OnnxTR/docTR): content-anchored extraction (ruled-line-
+    independent, most robust). Otherwise the 4 GB Tesseract paths: ruled-line grid
+    + on-device digit model, then the plain grid, then word clustering."""
     gray_np = _deskew(np.array(gray))
+
+    # Deep-learning engine → content-anchored path first (best across all pages).
+    try:
+        from core import hardware
+        engine = _ENGINE_OVERRIDE or hardware.resolve_ocr_engine()
+    except Exception:
+        engine = _ENGINE_OVERRIDE
+    if engine in ("onnxtr", "doctr", "paddle"):
+        words, _eng = _page_words(gray_np)
+        if words:
+            content = _extract_content(gray_np, words, on_row=on_row)
+            if content:
+                return content
 
     # On the 4 GB deploy box (Tesseract engine) the OCR word-reader is too weak
     # to locate all rows. If the trained on-device digit model is available,
@@ -792,15 +1047,25 @@ def _extract_grid(gray_np: np.ndarray):
     if account_col is None:
         return None
 
-    # Row anchors = account word Ys; row height = median spacing.
+    # Row anchors = account-column word Ys. Anchor on EVERY account-column box
+    # with >= 6 digits, not only the ones that read as a full 11-16 digit account
+    # — a deep engine detects one box per row (53/53 on the real page) even when
+    # recognition drops a digit or two, so this captures every row instead of
+    # silently losing the rows whose account misread (the old 44/53 gap).
     acc_ws = sorted((w for w in col_words[account_col]
-                     if 11 <= len(_clean_digits(w["t"])) <= 16),
+                     if len(_clean_digits(w["t"])) >= 6),
                     key=lambda w: w["yc"])
-    anchors = [w["yc"] for w in acc_ws]
-    if len(anchors) < 3:
+    raw_anchors = [w["yc"] for w in acc_ws]
+    if len(raw_anchors) < 3:
         return None
-    gaps = [anchors[i + 1] - anchors[i] for i in range(len(anchors) - 1)]
+    gaps = [raw_anchors[i + 1] - raw_anchors[i] for i in range(len(raw_anchors) - 1)]
     h = float(np.median(gaps)) if gaps else 55.0
+    # Merge near-duplicate anchors (one account box split into two by the engine)
+    # that sit closer than half a row apart, so a split doesn't create a phantom row.
+    anchors = []
+    for y in raw_anchors:
+        if not anchors or y - anchors[-1] > h * 0.5:
+            anchors.append(y)
 
     # Build a full 2D cell grid: every word is assigned to the row whose anchor
     # is NEAREST (capped at ~0.6 row-heights), and to its x-bucket column. This
@@ -899,22 +1164,35 @@ def _extract_grid(gray_np: np.ndarray):
     trailing_cols = list(range(mob_col + 1, ncols))
 
     rows = []
-    for ri in range(len(anchors)):
-        # Account: PREFER the trained on-device digit model; fall back to the OCR
-        # engine read, then the Tesseract digit re-read. 10-16 plausible digits.
-        account = onnx_cell(account_col, ri)
-        if not (10 <= len(account) <= 16):
-            account = _clean_digits(cell(ri, account_col))
-        if not (10 <= len(account) <= 16):
-            alt = digit_cell(account_col, ri)
-            if 10 <= len(alt) <= 16:
-                account = alt
-        account = account if 10 <= len(account) <= 16 else ""
+    # A deep-learning engine (OnnxTR/docTR/paddle) reads scanned digits better
+    # than the tiny custom digit model — measured 49/53 vs 17/53 clean accounts on
+    # the real page — so for those engines TRUST the engine text first and use the
+    # custom model only as a fallback. On the weak Tesseract path it's the reverse
+    # (the custom model beats Tesseract), so that path tries the model first.
+    _deep = _engine in ("onnxtr", "doctr", "paddle")
 
-        # Mobile: model first, then engine, then digit re-read — each validated.
-        mobile = (_valid_mobile(onnx_cell(mob_col, ri))
-                  or _valid_mobile(cell(ri, mob_col))
-                  or _valid_mobile(digit_cell(mob_col, ri)))
+    def read_account(ri):
+        cands = ([_clean_digits(cell(ri, account_col)), onnx_cell(account_col, ri)]
+                 if _deep else
+                 [onnx_cell(account_col, ri), _clean_digits(cell(ri, account_col))])
+        for c in cands:
+            if 10 <= len(c) <= 16:
+                return c
+        alt = digit_cell(account_col, ri)      # last resort: Tesseract digit re-read
+        return alt if 10 <= len(alt) <= 16 else ""
+
+    def read_mobile(ri):
+        cands = ([cell(ri, mob_col), onnx_cell(mob_col, ri)] if _deep
+                 else [onnx_cell(mob_col, ri), cell(ri, mob_col)])
+        for c in cands:
+            v = _valid_mobile(c)
+            if v:
+                return v
+        return _valid_mobile(digit_cell(mob_col, ri))
+
+    for ri in range(len(anchors)):
+        account = read_account(ri)
+        mobile = read_mobile(ri)
 
         # Balance band: strict regex first; if that fails (mangled photo OCR),
         # snap the cell text to the nearest of the 4 known bands so it isn't left

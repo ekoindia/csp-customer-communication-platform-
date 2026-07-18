@@ -70,3 +70,6 @@ Thumbs.db
 
 # Model rollback backups (local only)
 **/*.onnx.bak
+
+# Throwaway OCR test venv (never commit)
+.venv_onnxtr/
