@@ -169,9 +169,13 @@ let zoom = 1;
 function applyZoom(delta) {
   zoom = Math.min(3, Math.max(0.5, Math.round((zoom + delta) * 100) / 100));
   const box = document.getElementById("leftZoom");
-  // CSS zoom resizes the content AND grows the scroll area, so both the scanned
-  // image and the source table actually get bigger and can be scrolled.
-  box.style.zoom = zoom;
+  // Scale the panel WIDTH: the images/table are width:100% of this box, so
+  // widening it past 100% makes them genuinely bigger and the card-body's
+  // overflow:auto gives horizontal+vertical scrollbars. (CSS `zoom` was
+  // unreliable here — a width:100% child recomputes against the zoomed box and
+  // nets out to no visible change in some Chromium builds, e.g. the embedded
+  // VS Code browser.)
+  box.style.width = (zoom * 100) + "%";
   document.getElementById("zoomLabel").textContent = Math.round(zoom * 100) + "%";
 }
 function resetZoom() { zoom = 1; applyZoom(0); }

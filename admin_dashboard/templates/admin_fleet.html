@@ -1,5 +1,6 @@
 {% extends "admin_base.html" %}
 {% block title %}Fleet - Eko Admin Portal{% endblock %}
+{% block autorefresh %}10{% endblock %}
 {% block body %}
 <h1>CSP Fleet</h1>
 <p class="sub">Live status of all CSP installs. Online = reported within the last {{ window }} minutes.</p>

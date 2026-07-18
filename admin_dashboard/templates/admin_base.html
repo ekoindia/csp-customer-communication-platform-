@@ -104,5 +104,29 @@
     </div>
   </div>
 </div>
+{% if session.get('admin_in') %}
+<script>
+// Live auto-refresh for the read-only dashboards. Eko's server can't push into a
+// CSP PC, so CSP data lands here on the CSP's heartbeat timer; this reloads the
+// open admin page so the admin sees it without pressing refresh. Opt-in per page
+// via the `autorefresh` block (seconds); 0/omitted = off (form pages stay off).
+// Guarded so it NEVER reloads over a form the admin is filling in.
+(function(){
+  var SEC = parseInt("{% block autorefresh %}0{% endblock %}", 10) || 0;
+  if(!SEC) return;
+  var dirty = false;                       // true once any form field is touched
+  function mark(e){ if(e.target && e.target.closest && e.target.closest('form')) dirty = true; }
+  document.addEventListener('input', mark, true);
+  document.addEventListener('change', mark, true);
+  setInterval(function(){
+    if(dirty) return;                                    // mid-edit -> don't clobber
+    if(document.visibilityState !== 'visible') return;   // background tab -> skip
+    var a = document.activeElement;
+    if(a && /^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName)) return;  // focused field
+    location.reload();
+  }, SEC*1000);
+})();
+</script>
+{% endif %}
 </body>
 </html>
