@@ -76,6 +76,39 @@ def _download(url: str, dest: str):
         shutil.copyfileobj(r, f)
 
 
+def _download_progress(url: str, dest: str):
+    """Like _download but prints a live progress line. The GitHub package is large
+    (~90 MB with the OCR models bundled), so without this the console looks frozen
+    for minutes and a CSP may kill the window mid-download (this happened). GitHub's
+    on-the-fly zipball often omits Content-Length, so we fall back to a MB counter
+    when the total size is unknown."""
+    import sys
+    with urlopen(url, timeout=120) as r, open(dest, "wb") as f:  # nosec - admin-set URL
+        total = int(r.headers.get("Content-Length") or 0)
+        done = last = 0
+        while True:
+            buf = r.read(1 << 18)          # 256 KB chunks
+            if not buf:
+                break
+            f.write(buf)
+            done += len(buf)
+            if total:
+                pct = done * 100 // total
+                if pct != last:
+                    last = pct
+                    sys.stdout.write(f"\r[updater] downloading... {pct}%  "
+                                     f"({done >> 20}/{total >> 20} MB)   ")
+                    sys.stdout.flush()
+            else:
+                mb = done >> 20
+                if mb != last:
+                    last = mb
+                    sys.stdout.write(f"\r[updater] downloading... {mb} MB   ")
+                    sys.stdout.flush()
+    sys.stdout.write("\n")
+    sys.stdout.flush()
+
+
 def _is_preserved(rel: str) -> bool:
     top = rel.replace("\\", "/").split("/", 1)[0]
     if top in _PRESERVE:
@@ -420,10 +453,11 @@ def apply_from_github(url: str = None) -> dict:
     try:
         os.makedirs(UPDATE_DIR, exist_ok=True)
         tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False, dir=UPDATE_DIR).name
-        _download(url, tmp)
+        _download_progress(url, tmp)
         if not zipfile.is_zipfile(tmp):
             os.remove(tmp)
             return {"ok": False, "applied": False, "error": "download is not a valid zip"}
+        print("[updater] download complete, applying update...")
         # Locate the app root inside the repo zip = the folder holding csp_dashboard/app.py
         with zipfile.ZipFile(tmp) as z:
             names = [n.replace("\\", "/") for n in z.namelist() if not n.endswith("/")]
@@ -468,10 +502,9 @@ if __name__ == "__main__":
     import sys
     if "--from-github" in sys.argv:
         print("[updater] pulling the latest app from GitHub...")
-        res = apply_from_github()
+        res = apply_from_github()   # already refreshes dependencies internally
         if res.get("applied"):
             print(f"[updater] updated from GitHub ({res.get('files')} files)")
-            refresh_dependencies()
             _report_icon(ensure_desktop_icon())
         elif res.get("ok"):
             print("[updater] already up to date (nothing changed).")
