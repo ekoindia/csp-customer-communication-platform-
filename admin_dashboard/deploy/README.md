@@ -15,7 +15,23 @@ Lays down the current code into `/home/Prateek/csp_platform`, preserving the liv
 curl -sL https://raw.githubusercontent.com/ekoindia/csp-customer-communication-platform-/main/admin_dashboard/deploy/install_admin.sh | bash
 ```
 
-## Update (every time after)
+## Fast auto-deploy (recommended — set up once, then never SSH to update)
+Installs a cron job so the live portal **auto-tracks GitHub `main`**: every push
+goes live within ~1–2 min, with no manual step. This is the fix for the portal
+silently drifting behind GitHub (which is what left the old install/update pages
+showing on the live server long after they were deleted in the code).
+
+```bash
+bash /home/Prateek/csp_platform/admin_dashboard/deploy/setup_autoupdate.sh
+```
+
+- Runs `auto_update_admin.sh` every 2 min (change with `ADMIN_AUTOUPDATE_MIN=1`).
+- It only pulls + restarts when `main` actually moved — otherwise it's a silent
+  no-op (`git fetch` only), so running it often is cheap.
+- Log: `admin_dashboard/_autoupdate.log`. Turn off:
+  `crontab -l | grep -v '# csp-admin-autoupdate' | crontab -`
+
+## Update once, manually (if you prefer not to use cron)
 ```bash
 bash /home/Prateek/csp_platform/admin_dashboard/deploy/update_admin.sh
 ```
