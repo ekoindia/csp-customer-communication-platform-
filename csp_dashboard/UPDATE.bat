@@ -33,9 +33,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-REM Ensure the "CSP Platform" desktop/Start-Menu icon exists (run as a SEPARATE
-REM process so it uses the freshly-updated code, and lands on the CSP's own
-REM desktop even if the original install put it on an admin account's desktop).
+REM Belt-and-braces: --from-github already checks the "CSP Platform" desktop /
+REM Start-Menu icon and creates it only where it's MISSING. This second call
+REM re-checks with the freshly-updated code (and, as the CSP's own user, on the
+REM CSP's own desktop even if the original install put it on an admin account's).
+REM It is a no-op when the icon is already there.
 "%PY%" -m core.updater --make-icon
 
 echo.
