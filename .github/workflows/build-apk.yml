@@ -1,0 +1,55 @@
+name: Build CSP Scan APK
+
+# Builds the CSP Scan Android app (a WebView shell around
+# csp_dashboard/mobile_scanner/scan.html) and publishes a downloadable,
+# debug-signed .apk as a workflow artifact. No Android Studio needed locally.
+
+on:
+  push:
+    paths:
+      - 'mobile_app/**'
+      - 'csp_dashboard/mobile_scanner/scan.html'
+      - '.github/workflows/build-apk.yml'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Bundle the scanner page into the app assets
+        run: |
+          mkdir -p mobile_app/app/src/main/assets
+          cp csp_dashboard/mobile_scanner/scan.html mobile_app/app/src/main/assets/scan.html
+          echo "Bundled scan.html:"; ls -l mobile_app/app/src/main/assets/
+
+      - name: Download Gradle 8.5
+        run: |
+          wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+          unzip -q gradle-8.5-bin.zip
+
+      - name: Build debug APK
+        working-directory: mobile_app
+        run: ../gradle-8.5/bin/gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Rename APK
+        run: |
+          cp mobile_app/app/build/outputs/apk/debug/app-debug.apk CSP-Scan.apk
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: CSP-Scan-APK
+          path: CSP-Scan.apk
+          if-no-files-found: error
