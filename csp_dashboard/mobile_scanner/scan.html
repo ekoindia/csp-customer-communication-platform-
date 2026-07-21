@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>CSP Scanner</title>
+<!--
+  CSP mobile scanner — CLIENT-SIDE / ZERO-UPLOAD.
+  Runs entirely in the phone's browser. The photo is OCR'd on-device (Tesseract.js
+  WASM); it is NEVER uploaded anywhere. The extracted rows are turned into an Excel
+  and ENCRYPTED into a .cspx (AES-256-GCM, key from a passphrase via PBKDF2) using
+  the browser's Web Crypto API — byte-for-byte the format the desktop app decrypts
+  (see csp_dashboard/core/import_crypto.py). Only that encrypted blob leaves the
+  phone (over WhatsApp/share), so customer PII never travels in the clear.
+
+  Library JS (Tesseract.js, SheetJS) loads from a CDN — that is program code, not
+  customer data; the image + the extracted PII never go to any server.
+-->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<style>
+  :root{--bg:#0d5e66;--bg2:#12847a;--card:#fff;--ink:#12303a;--soft:#5b6b74;
+        --line:#d9e2e6;--accent:#f5a623;--ok:#1a9e5f;--bad:#c0392b;}
+  *{box-sizing:border-box}
+  body{margin:0;font-family:system-ui,"Segoe UI",Roboto,Arial,sans-serif;
+       background:linear-gradient(160deg,var(--bg),var(--bg2));color:var(--ink);
+       min-height:100vh;padding:14px}
+  header{color:#fff;text-align:center;margin:6px 0 14px}
+  header h1{font-size:20px;margin:0}
+  header p{font-size:12px;opacity:.85;margin:4px 0 0}
+  .card{background:var(--card);border-radius:14px;padding:14px;margin:0 0 14px;
+        box-shadow:0 6px 18px rgba(0,0,0,.15)}
+  .card h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;
+           color:var(--soft);margin:0 0 10px}
+  label{font-size:13px;font-weight:600;display:block;margin:0 0 4px}
+  input,button,select{font-size:16px}
+  input[type=text],input[type=password]{width:100%;padding:10px;border:1px solid var(--line);
+        border-radius:9px;margin-bottom:6px}
+  .btn{display:block;width:100%;padding:13px;border:0;border-radius:10px;font-weight:700;
+       cursor:pointer;margin-top:8px}
+  .btn.primary{background:var(--accent);color:#3a2a00}
+  .btn.go{background:var(--ok);color:#fff}
+  .btn.ghost{background:#eef3f4;color:var(--ink)}
+  .btn:disabled{opacity:.5}
+  .hint{font-size:12px;color:var(--soft);margin:6px 0 0}
+  #prog{font-size:13px;color:var(--bg);font-weight:600;min-height:18px}
+  table{width:100%;border-collapse:collapse;font-size:13px}
+  th,td{border:1px solid var(--line);padding:2px}
+  th{background:#f2f6f7;font-size:11px;color:var(--soft)}
+  td input{width:100%;border:0;padding:7px 5px;font-size:14px}
+  td input:focus{outline:2px solid var(--accent);border-radius:4px}
+  .rowdel{background:none;border:0;color:var(--bad);font-size:18px;cursor:pointer}
+  .badge{display:inline-block;padding:2px 8px;border-radius:999px;font-size:11px;
+         background:#eef3f4;color:var(--soft)}
+  .ok{color:var(--ok)}.bad{color:var(--bad)}
+  #shot{max-width:100%;border-radius:10px;margin-top:8px;display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>CSP Document Scanner</h1>
+  <p>Scans on this phone only. Nothing is uploaded — the file is encrypted before it leaves.</p>
+</header>
+
+<div class="card">
+  <h2>1 · Passphrase</h2>
+  <label>Import passphrase (must match your dashboard Settings)</label>
+  <input id="pass" type="password" placeholder="e.g. csp-scan-2026" autocomplete="off">
+  <p class="hint">Used to encrypt the Excel. The desktop opens it with the same passphrase.</p>
+</div>
+
+<div class="card">
+  <h2>2 · Capture</h2>
+  <input id="file" type="file" accept="image/*" capture="environment" style="display:none">
+  <input id="filePdf" type="file" accept="application/pdf,image/*" style="display:none">
+  <button class="btn primary" onclick="document.getElementById('file').click()">📷 Take photo</button>
+  <button class="btn ghost" onclick="document.getElementById('filePdf').click()">📄 Choose PDF / image</button>
+  <img id="shot" alt="">
+  <div id="prog"></div>
+  <p class="hint">Photo lo, ya ek scanned <b>PDF</b> (multi-page bhi) choose karo — har page OCR hoke
+     rows ban jaayenge. Multiple photos bhi le sakte ho, rows jud'te jaayenge. Neeche fix kar sakte ho.</p>
+</div>
+
+<div class="card">
+  <h2>3 · Review &amp; fix rows <span id="count" class="badge">0</span></h2>
+  <table>
+    <thead><tr><th>Account</th><th>Name</th><th>Mobile</th><th>Band</th><th></th></tr></thead>
+    <tbody id="rows"></tbody>
+  </table>
+  <button class="btn ghost" onclick="addRow()">+ Add empty row</button>
+  <p class="hint">Bands: 0.1&lt;100 · 100&lt;1000 · 1000&lt;10000 · B&gt;10000</p>
+</div>
+
+<div class="card">
+  <h2>4 · Make encrypted file</h2>
+  <button id="make" class="btn go" onclick="makeCspx()">🔐 Make .cspx &amp; share</button>
+  <p class="hint">Creates an encrypted Excel and opens Share → send to yourself on WhatsApp,
+     open WhatsApp Web on the PC, download it, and upload in the dashboard.</p>
+  <div id="done"></div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const HEADER = new Uint8Array([0x43,0x53,0x50,0x58,0x01]); // "CSPX" + version 1
+
+// ---- rows table ----
+function addRow(a="",n="",m="",b=""){
+  const tr=document.createElement("tr");
+  tr.innerHTML=`<td><input value="${a}"></td><td><input value="${n}"></td>
+    <td><input value="${m}"></td><td><input value="${b}"></td>
+    <td><button class="rowdel" title="delete">✕</button></td>`;
+  tr.querySelector(".rowdel").onclick=()=>{tr.remove();recount();};
+  $("rows").appendChild(tr); recount();
+}
+function recount(){ $("count").textContent = $("rows").children.length; }
+
+// Wipe all customer data from the app after a successful share: the captured
+// photo, every extracted row, and the file input. Leaves the passphrase so the
+// next scan needs no re-typing. Nothing customer-related remains on screen or in
+// this page's memory afterwards.
+function wipe(){
+  $("rows").innerHTML=""; addRow(); recount();
+  const img=$("shot");
+  if(img.getAttribute("src")){ try{ URL.revokeObjectURL(img.src); }catch(e){} }
+  img.removeAttribute("src"); img.style.display="none";
+  $("file").value="";
+  $("prog").textContent="";
+}
+function tableRows(){
+  return [...$("rows").children].map(tr=>{
+    const v=[...tr.querySelectorAll("input")].map(i=>i.value.trim());
+    return {account_number:v[0],name:v[1],mobile:v[2],balance_band:v[3]};
+  }).filter(r=>r.account_number||r.name||r.mobile);
+}
+
+// ---- OCR (photo OR PDF, all on this phone) ----
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+}
+
+["file","filePdf"].forEach(id=> $(id).addEventListener("change", onPick));
+
+async function onPick(e){
+  const f=e.target.files[0]; e.target.value="";   // allow re-picking the same file
+  if(!f) return;
+  try{
+    if(f.type==="application/pdf" || /\.pdf$/i.test(f.name)) await ocrPdf(f);
+    else await ocrImage(f);
+    dropEmptyRows();
+    $("prog").innerHTML='<span class="ok">Ho gaya — rows neeche check/theek karo.</span>';
+  }catch(err){ $("prog").innerHTML='<span class="bad">OCR fail: '+err.message+'</span>'; }
+}
+
+// a photo (one page)
+async function ocrImage(f){
+  const url=URL.createObjectURL(f);
+  $("shot").src=url; $("shot").style.display="block";
+  try{
+    const {data}=await Tesseract.recognize(url,"eng",{logger:m=>{
+      if(m.status==="recognizing text")
+        $("prog").textContent="Reading photo… "+Math.round(m.progress*100)+"%"; }});
+    parseInto(data.text);
+  } finally { URL.revokeObjectURL(url); }
+}
+
+// a PDF: render EACH page to a canvas on this phone (PDF.js), then OCR it.
+// Nothing leaves the device — the PDF bytes stay in browser memory.
+async function ocrPdf(f){
+  if(!window.pdfjsLib) throw new Error("PDF library not loaded (need internet the first time)");
+  $("shot").style.display="none";
+  const buf=await f.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
+  for(let p=1;p<=pdf.numPages;p++){
+    $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — rendering…";
+    const page=await pdf.getPage(p);
+    const viewport=page.getViewport({scale:2});           // decent resolution for OCR
+    const canvas=document.createElement("canvas");
+    canvas.width=viewport.width; canvas.height=viewport.height;
+    await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;
+    const {data}=await Tesseract.recognize(canvas,"eng",{logger:m=>{
+      if(m.status==="recognizing text")
+        $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — reading… "+Math.round(m.progress*100)+"%"; }});
+    parseInto(data.text);
+    canvas.width=0; canvas.height=0;                       // free the page image (mobile RAM)
+  }
+}
+
+// after OCR, drop blank placeholder rows if we actually found data
+function dropEmptyRows(){
+  const trs=[...$("rows").children];
+  const filled=tr=>[...tr.querySelectorAll("input")].some(i=>i.value.trim());
+  if(trs.some(filled)) trs.forEach(tr=>{ if(!filled(tr)) tr.remove(); });
+  if(!$("rows").children.length) addRow();
+  recount();
+}
+
+// crude line parser: pull a band token, a 10-digit mobile, a longer account
+// number, and treat the leftover letters as the name. The CSP fixes the rest.
+function parseInto(text){
+  const bands=["0.1<100","100<1000","1000<10000","B>10000"];
+  (text||"").split(/\n/).forEach(line=>{
+    const raw=line.trim(); if(raw.length<6) return;
+    let band=""; for(const b of bands){ if(raw.replace(/\s/g,"").includes(b)){band=b;break;} }
+    const nums=raw.match(/\d[\d\s]{4,}\d/g)||[];
+    const clean=nums.map(x=>x.replace(/\s/g,""));
+    const mobile=(clean.find(x=>x.length===10&&/^[6-9]/.test(x)))||"";
+    const account=(clean.find(x=>x!==mobile&&x.length>=9))||"";
+    const name=(raw.match(/[A-Za-z][A-Za-z .]{2,}/g)||[]).join(" ").trim();
+    if(mobile||account||band) addRow(account,name,mobile,band);
+  });
+  if(!$("rows").children.length) addRow();
+}
+
+// ---- .cspx encryption (Web Crypto) — matches core/import_crypto.py ----
+async function encryptCspx(plaintext, passphrase){
+  const enc=new TextEncoder();
+  const salt=crypto.getRandomValues(new Uint8Array(16));
+  const nonce=crypto.getRandomValues(new Uint8Array(12));
+  const km=await crypto.subtle.importKey("raw",enc.encode(passphrase),{name:"PBKDF2"},false,["deriveKey"]);
+  const key=await crypto.subtle.deriveKey(
+    {name:"PBKDF2",salt,iterations:200000,hash:"SHA-256"},
+    km,{name:"AES-GCM",length:256},false,["encrypt"]);
+  const body=new Uint8Array(await crypto.subtle.encrypt(
+    {name:"AES-GCM",iv:nonce,additionalData:HEADER,tagLength:128},key,plaintext));
+  const out=new Uint8Array(HEADER.length+16+12+body.length);
+  out.set(HEADER,0); out.set(salt,5); out.set(nonce,21); out.set(body,33);
+  return out;
+}
+
+async function makeCspx(){
+  const pass=$("pass").value.trim();
+  if(pass.length<6){ alert("Enter the passphrase (min 6 chars) — same as the dashboard."); return; }
+  const rows=tableRows();
+  if(!rows.length){ alert("No rows to export. Capture a photo or add rows."); return; }
+  $("make").disabled=true; $("done").textContent="Building encrypted file…";
+  try{
+    const n=rows.length;
+    // build xlsx (same 4 columns the desktop expects)
+    const aoa=[["account_number","name","mobile","balance_band"],
+               ...rows.map(r=>[r.account_number,r.name,r.mobile,r.balance_band])];
+    const wb=XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet(aoa),"cases");
+    const xlsx=new Uint8Array(XLSX.write(wb,{type:"array",bookType:"xlsx"}));
+    const blob=await encryptCspx(xlsx,pass);
+    xlsx.fill(0);                         // plaintext Excel wiped from memory at once
+    const name="scan_"+new Date().toISOString().slice(0,10)+".cspx";
+    const file=new File([blob],name,{type:"application/octet-stream"});
+    // Prefer the Share sheet (WhatsApp etc.): it does NOT save a file on the
+    // phone, so once shared, nothing customer-related is left in storage. We then
+    // wipe the app's own memory (blob, photo, rows) so no PII lingers here either.
+    if(navigator.canShare && navigator.canShare({files:[file]})){
+      await navigator.share({files:[file],title:name,text:"CSP encrypted scan"});
+      blob.fill(0);
+      wipe();
+      $("done").innerHTML='<span class="ok">Shared '+n+' rows, then cleared. Nothing left on this phone.</span>';
+    }else{
+      // Fallback: no Share support -> a Download is the only option, and a web
+      // page CANNOT delete a file it saved to Downloads. So we still wipe our
+      // own memory, but the CSP must delete the downloaded file after sending.
+      const u=URL.createObjectURL(file); const a=document.createElement("a");
+      a.href=u; a.download=name; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(u),4000);
+      blob.fill(0);
+      wipe();
+      $("done").innerHTML='<span class="bad">Saved to Downloads ('+n+' rows). Send it on WhatsApp, '
+        +'then DELETE it from Downloads — a web page cannot delete it for you.</span>';
+    }
+  }catch(e){ $("done").innerHTML='<span class="bad">Failed: '+e.message+'</span>'; }
+  finally{ $("make").disabled=false; }
+}
+addRow();
+</script>
+</body>
+</html>
