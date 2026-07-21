@@ -47,6 +47,7 @@ jobs:
           sed -i "s#https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js#$B/worker.min.js#g" "$H"
           sed -i "s#https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js#$B/tesseract-core.wasm.js#g" "$H"
           sed -i "s#https://tessdata.projectnaptha.com/4.0.0#$B#g" "$H"
+          sed -i "s#const OCR_GZIP = true;#const OCR_GZIP = false;#g" "$H"
           sed -i "s#https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js#$B/xlsx.full.min.js#g" "$H"
           sed -i "s#https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js#$B/pdf.min.js#g" "$H"
           sed -i "s#https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js#$B/pdf.worker.min.js#g" "$H"
@@ -64,6 +65,7 @@ jobs:
           dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js        pdf.min.js
           dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js pdf.worker.min.js
           dl https://tessdata.projectnaptha.com/4.0.0/eng.traineddata.gz             eng.traineddata.gz
+          gunzip -f eng.traineddata.gz    # ship UNCOMPRESSED eng.traineddata (matches OCR_GZIP=false)
           echo "== bundled libs =="; ls -lh
 
       - name: Download Gradle 8.5
