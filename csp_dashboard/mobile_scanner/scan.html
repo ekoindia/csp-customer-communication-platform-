@@ -151,6 +151,10 @@ const OCR_WORKER = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.
 const OCR_CORE   = "https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js";
 const OCR_LANG   = "https://tessdata.projectnaptha.com/4.0.0";
 const PDF_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+// Online (CDN) the language file is gzipped (eng.traineddata.gz). In the APK the
+// build ships it UNCOMPRESSED as eng.traineddata, so the packaged copy sets this
+// to false (rewritten by build-apk.yml) — otherwise Tesseract 404s on the .gz.
+const OCR_GZIP = true;
 
 if(window.pdfjsLib){ pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER; }
 
@@ -168,6 +172,7 @@ async function newWorker(onProg){
     workerPath: OCR_WORKER,
     corePath:   OCR_CORE,
     langPath:   OCR_LANG,
+    gzip:       OCR_GZIP,
     logger: m => { if(m.status==="recognizing text" && onProg) onProg(m.progress); }
   });
 }
