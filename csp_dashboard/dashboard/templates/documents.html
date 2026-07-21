@@ -54,9 +54,11 @@
              style="cursor:pointer"
              onclick="document.getElementById('fileInput').click()">
           <div>Drag &amp; drop bank documents here, or click to select</div>
+          <div class="small text-muted mt-1">Excel / CSV / PDF / image, or a
+            <code>.cspx</code> file from the phone scanner app</div>
           <div id="fileName" class="fw-semibold text-dark mt-1"></div>
           <input id="fileInput" type="file" name="documents" hidden multiple
-                 accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.tiff,.bmp"
+                 accept=".xlsx,.xls,.csv,.pdf,.jpg,.jpeg,.png,.tiff,.bmp,.cspx"
                  onchange="showName(this)">
         </div>
         <!-- Page range applies to PDFs only; hidden for CSV / Excel / images. -->

@@ -20,6 +20,7 @@ dashboard_bp = Blueprint("dashboard", __name__)
 
 ALLOWED_EXTENSIONS = {
     ".xlsx", ".xls", ".csv", ".pdf", ".jpg", ".jpeg", ".png", ".tiff", ".bmp",
+    ".cspx",   # encrypted Excel from the CSP phone scanner app (decrypted at ingress)
 }
 
 
@@ -287,6 +288,41 @@ def upload():
         save_paths.append(save_path)
         original_names.append(file.filename)
 
+    # Encrypted mobile-scanner packages (.cspx) arrive as an opaque blob — the
+    # phone encrypted the scanned Excel before it ever touched WhatsApp (see
+    # core/import_crypto.py). Decrypt each one to a plain .xlsx right here, so
+    # everything downstream (parser, review gate) treats it as an ordinary Excel
+    # with zero changes. A missing/wrong passphrase aborts the WHOLE batch with a
+    # clear message; nothing half-decrypted is ever processed.
+    if any(p.lower().endswith(".cspx") for p in save_paths):
+        from core import import_crypto
+        from core.settings import get_import_passphrase
+        passphrase = get_import_passphrase()
+        for i, path in enumerate(save_paths):
+            if not path.lower().endswith(import_crypto.EXT):
+                continue
+            try:
+                with open(path, "rb") as fh:
+                    xlsx = import_crypto.decrypt_package(fh.read(), passphrase)
+            except import_crypto.DecryptError as e:
+                for p in save_paths:
+                    try:
+                        os.remove(p)
+                    except OSError:
+                        pass
+                flash(f"Could not open the encrypted file {original_names[i]}: {e}")
+                return redirect(docs_url)
+            new_path = path[:-len(import_crypto.EXT)] + ".xlsx"
+            with open(new_path, "wb") as fh:
+                fh.write(xlsx)
+            try:
+                os.remove(path)   # encrypted original not needed once decrypted
+            except OSError:
+                pass
+            save_paths[i] = new_path
+            if original_names[i].lower().endswith(import_crypto.EXT):
+                original_names[i] = original_names[i][:-len(import_crypto.EXT)] + ".xlsx"
+
     # Optional page range (1-based, inclusive) — the CSP chooses how far into
     # a scanned PDF to run this batch. Blank = whole document.
     def _int_or_none(key):
@@ -474,8 +510,11 @@ def campaign(campaign_id: str):
 
     documents = list_documents()
 
-    from core.settings import get_csp_settings
+    from core.settings import get_csp_settings, import_passphrase_is_set
     csp_settings = get_csp_settings()
+    # Whether a mobile-scanner import passphrase is set (never send the value
+    # itself to the browser — just whether one exists).
+    import_passphrase_set = import_passphrase_is_set()
 
     # An update may already be staged (downloaded + verified by the background
     # sync loop) but not yet applied — that only happens at the NEXT full
@@ -498,6 +537,7 @@ def campaign(campaign_id: str):
         categories=categories,
         documents=documents,
         csp_settings=csp_settings,
+        import_passphrase_set=import_passphrase_set,
         queue_pending=queue_pending,
         unqueued_count=unqueued_count,
         pending_update=pending_update,
@@ -743,7 +783,7 @@ def save_settings():
     if guard:
         return jsonify({"error": "not logged in"}), 401
 
-    from core.settings import update_csp_settings
+    from core.settings import update_csp_settings, set_import_passphrase
     data = request.get_json(silent=True) or {}
     result = update_csp_settings(
         data.get("csp_name"), data.get("csp_phone"), data.get("csp_address"),
@@ -751,6 +791,14 @@ def save_settings():
     )
     if not result["ok"]:
         return jsonify({"ok": False, "errors": result["errors"]}), 400
+
+    # Mobile-import passphrase is optional and only touched when the field is
+    # present in the payload, so saving plain CSP details never clears it. An
+    # empty string explicitly clears it (disables encrypted phone import).
+    if "import_passphrase" in data:
+        pw_res = set_import_passphrase(data.get("import_passphrase"))
+        if not pw_res["ok"]:
+            return jsonify({"ok": False, "errors": pw_res["errors"]}), 400
 
     insert_audit_log(session["user_id"], "settings_updated",
                      f"csp_name={data.get('csp_name')}")

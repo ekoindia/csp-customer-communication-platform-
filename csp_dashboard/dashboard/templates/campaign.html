@@ -525,6 +525,25 @@
                 <label class="form-label">CSP Address</label>
                 <textarea id="cspAddress" class="form-control" rows="2">{{ csp_settings.csp_address }}</textarea>
               </div>
+
+              <hr>
+              <div class="mb-2 fw-semibold">Phone Scanner Import
+                {% if import_passphrase_set %}
+                  <span class="badge bg-success">passphrase set</span>
+                {% else %}
+                  <span class="badge bg-secondary">not set</span>
+                {% endif %}
+              </div>
+              <div class="mb-3">
+                <label class="form-label">Import passphrase</label>
+                <input id="importPassphrase" type="password" class="form-control"
+                       placeholder="{% if import_passphrase_set %}•••••• (leave blank to keep){% else %}not set yet{% endif %}">
+                <div class="form-text">
+                  Must match the passphrase set in the CSP phone scanner app. Used to
+                  open the encrypted Excel (<code>.cspx</code>) you upload from the phone.
+                  Leave blank to keep the current one.
+                </div>
+              </div>
               <button class="btn btn-primary" onclick="saveSettings()">Save Settings</button>
             </div>
           </div>
@@ -929,6 +948,10 @@ function saveSettings() {
     csp_phone: document.getElementById("cspPhone").value,
     csp_address: document.getElementById("cspAddress").value,
   };
+  // Only send the passphrase when the CSP actually typed one, so saving plain
+  // details never wipes an already-set passphrase.
+  const pw = document.getElementById("importPassphrase");
+  if (pw && pw.value) body.import_passphrase = pw.value;
   fetch("/api/settings", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -938,6 +961,7 @@ function saveSettings() {
   .then(d => {
     const box = document.getElementById("settingsAlert");
     if (d.ok) {
+      if (pw) pw.value = "";   // never leave the secret on screen after saving
       box.innerHTML = '<div class="alert alert-success py-2">Settings saved.</div>';
     } else {
       box.innerHTML = '<div class="alert alert-danger py-2">' +
