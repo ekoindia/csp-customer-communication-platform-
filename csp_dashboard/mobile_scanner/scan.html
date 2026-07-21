@@ -143,56 +143,78 @@ function tableRows(){
 }
 
 // ---- OCR (photo OR PDF, all on this phone) ----
-if(window.pdfjsLib){
-  pdfjsLib.GlobalWorkerOptions.workerSrc =
-    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-}
+// Engine asset locations. In the packaged APK these are REWRITTEN to local
+// bundled files (see build-apk.yml) so OCR works fully OFFLINE. corePath points
+// at the NON-SIMD core on purpose: it needs no SharedArrayBuffer, which an
+// Android WebView does not provide (the SIMD core would fail there).
+const OCR_WORKER = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js";
+const OCR_CORE   = "https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js";
+const OCR_LANG   = "https://tessdata.projectnaptha.com/4.0.0";
+const PDF_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
+
+if(window.pdfjsLib){ pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER; }
 
 ["file","filePdf"].forEach(id=> $(id).addEventListener("change", onPick));
+
+function errText(e){
+  if(!e) return "unknown error";
+  try{ return e.message || (e.toString && e.toString()) || JSON.stringify(e) || "unknown"; }
+  catch(_){ return "unknown error"; }
+}
+
+// One Tesseract worker, configured to load its engine from the (local) paths.
+async function newWorker(onProg){
+  return await Tesseract.createWorker("eng", 1, {
+    workerPath: OCR_WORKER,
+    corePath:   OCR_CORE,
+    langPath:   OCR_LANG,
+    logger: m => { if(m.status==="recognizing text" && onProg) onProg(m.progress); }
+  });
+}
 
 async function onPick(e){
   const f=e.target.files[0]; e.target.value="";   // allow re-picking the same file
   if(!f) return;
+  $("prog").textContent="Loading OCR engine…";
   try{
     if(f.type==="application/pdf" || /\.pdf$/i.test(f.name)) await ocrPdf(f);
     else await ocrImage(f);
     dropEmptyRows();
     $("prog").innerHTML='<span class="ok">Ho gaya — rows neeche check/theek karo.</span>';
-  }catch(err){ $("prog").innerHTML='<span class="bad">OCR fail: '+err.message+'</span>'; }
+  }catch(err){ $("prog").innerHTML='<span class="bad">OCR fail: '+errText(err)+'</span>'; }
 }
 
 // a photo (one page)
 async function ocrImage(f){
   const url=URL.createObjectURL(f);
   $("shot").src=url; $("shot").style.display="block";
-  try{
-    const {data}=await Tesseract.recognize(url,"eng",{logger:m=>{
-      if(m.status==="recognizing text")
-        $("prog").textContent="Reading photo… "+Math.round(m.progress*100)+"%"; }});
-    parseInto(data.text);
-  } finally { URL.revokeObjectURL(url); }
+  const w=await newWorker(p=>$("prog").textContent="Reading photo… "+Math.round(p*100)+"%");
+  try{ const {data}=await w.recognize(url); parseInto(data.text); }
+  finally{ try{ await w.terminate(); }catch(_){} URL.revokeObjectURL(url); }
 }
 
 // a PDF: render EACH page to a canvas on this phone (PDF.js), then OCR it.
 // Nothing leaves the device — the PDF bytes stay in browser memory.
 async function ocrPdf(f){
-  if(!window.pdfjsLib) throw new Error("PDF library not loaded (need internet the first time)");
+  if(!window.pdfjsLib) throw new Error("PDF library not loaded");
   $("shot").style.display="none";
   const buf=await f.arrayBuffer();
   const pdf=await pdfjsLib.getDocument({data:new Uint8Array(buf)}).promise;
-  for(let p=1;p<=pdf.numPages;p++){
-    $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — rendering…";
-    const page=await pdf.getPage(p);
-    const viewport=page.getViewport({scale:2});           // decent resolution for OCR
-    const canvas=document.createElement("canvas");
-    canvas.width=viewport.width; canvas.height=viewport.height;
-    await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;
-    const {data}=await Tesseract.recognize(canvas,"eng",{logger:m=>{
-      if(m.status==="recognizing text")
-        $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — reading… "+Math.round(m.progress*100)+"%"; }});
-    parseInto(data.text);
-    canvas.width=0; canvas.height=0;                       // free the page image (mobile RAM)
-  }
+  const w=await newWorker();
+  try{
+    for(let p=1;p<=pdf.numPages;p++){
+      $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — rendering…";
+      const page=await pdf.getPage(p);
+      const viewport=page.getViewport({scale:2});          // decent resolution for OCR
+      const canvas=document.createElement("canvas");
+      canvas.width=viewport.width; canvas.height=viewport.height;
+      await page.render({canvasContext:canvas.getContext("2d"),viewport}).promise;
+      $("prog").textContent="PDF page "+p+"/"+pdf.numPages+" — reading…";
+      const {data}=await w.recognize(canvas);
+      parseInto(data.text);
+      canvas.width=0; canvas.height=0;                     // free the page image (mobile RAM)
+    }
+  } finally { try{ await w.terminate(); }catch(_){} }
 }
 
 // after OCR, drop blank placeholder rows if we actually found data
