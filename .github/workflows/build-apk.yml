@@ -64,8 +64,8 @@ jobs:
           dl https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js           xlsx.full.min.js
           dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js        pdf.min.js
           dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js pdf.worker.min.js
-          dl https://tessdata.projectnaptha.com/4.0.0/eng.traineddata.gz             eng.traineddata.gz
-          gunzip -f eng.traineddata.gz    # ship UNCOMPRESSED eng.traineddata (matches OCR_GZIP=false)
+          # Higher-accuracy LSTM model (tessdata_best), uncompressed to match OCR_GZIP=false.
+          dl https://github.com/tesseract-ocr/tessdata_best/raw/main/eng.traineddata eng.traineddata
           echo "== bundled libs =="; ls -lh
 
       - name: Download Gradle 8.5
