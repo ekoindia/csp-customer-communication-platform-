@@ -1,0 +1,14 @@
+{
+  "name": "CSP Scan",
+  "short_name": "CSP Scan",
+  "description": "On-device document scanner — scan, extract, encrypt. Nothing leaves the phone unencrypted.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0d5e66",
+  "theme_color": "#0d5e66",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}
