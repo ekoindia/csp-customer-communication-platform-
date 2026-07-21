@@ -1,0 +1,10 @@
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+# The scanner page is copied in from csp_dashboard/mobile_scanner/scan.html at
+# build time (see .github/workflows/build-apk.yml) — not committed here, to keep
+# a single source of truth.
+app/src/main/assets/scan.html
