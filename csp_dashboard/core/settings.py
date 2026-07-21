@@ -54,3 +54,35 @@ def update_csp_settings(csp_name: str, csp_phone: str, csp_address: str,
 
     queries.update_branch(csp_name, csp_phone, csp_address, branch_code or None)
     return {"ok": True, "errors": []}
+
+
+# ── Mobile-scanner import passphrase ─────────────────────────────────────────
+# Shared secret between the CSP phone app and this desktop app: the phone
+# encrypts the scanned Excel into a .cspx with it, and the dashboard decrypts on
+# upload (see core/import_crypto.py). Stored locally in the config KV table — it
+# is operational config, not customer PII, and never leaves the PC. We store the
+# passphrase itself (not a hash) because we must re-derive the AES key to decrypt
+# the file; that is acceptable since it lives only in the local DB on the CSP's
+# own machine, the same trust boundary as pii.key.
+
+_IMPORT_PASSPHRASE_KEY = "mobile_import_passphrase"
+
+
+def get_import_passphrase() -> str:
+    """The .cspx decryption passphrase, or '' if the CSP hasn't set one yet."""
+    return (queries.get_config_value(_IMPORT_PASSPHRASE_KEY) or "").strip()
+
+
+def set_import_passphrase(passphrase: str) -> dict:
+    """Persist (or clear) the .cspx import passphrase. Returns {ok, errors}.
+    A blank value clears it (disables encrypted mobile import)."""
+    passphrase = (passphrase or "").strip()
+    if passphrase and len(passphrase) < 6:
+        return {"ok": False, "errors": ["Passphrase must be at least 6 characters "
+                                        "(must match the one set in the phone app)."]}
+    queries.set_config_value(_IMPORT_PASSPHRASE_KEY, passphrase)
+    return {"ok": True, "errors": []}
+
+
+def import_passphrase_is_set() -> bool:
+    return bool(get_import_passphrase())

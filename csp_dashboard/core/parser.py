@@ -29,9 +29,18 @@ def parse(file_path: str) -> List[Dict]:
 
 def _parse_excel(file_path: str) -> List[Dict]:
     import openpyxl
-    wb = openpyxl.load_workbook(file_path, data_only=True)
-    ws = wb.active
-    rows = list(ws.iter_rows(values_only=True))
+    # close the workbook before returning: on Windows an un-closed workbook keeps
+    # a handle on the file, which then blocks the DPDP cleanup from deleting the
+    # raw upload afterwards (leaving customer data on disk — critical when the
+    # file is a decrypted .cspx). read_only + close() releases it immediately.
+    wb = openpyxl.load_workbook(file_path, data_only=True, read_only=True)
+    try:
+        ws = wb.active
+        rows = list(ws.iter_rows(values_only=True))
+    finally:
+        wb.close()
+    if not rows:
+        return []
     headers = _normalise_headers(rows[0])
     return [dict(zip(headers, row)) for row in rows[1:] if any(cell is not None for cell in row)]
 
