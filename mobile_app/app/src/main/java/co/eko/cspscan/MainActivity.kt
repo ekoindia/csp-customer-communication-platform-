@@ -17,6 +17,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.FileProvider
 import androidx.webkit.WebViewAssetLoader
 import androidx.webkit.WebViewClientCompat
+import java.io.ByteArrayInputStream
 import java.io.File
 
 /**
@@ -37,6 +38,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+
+        clearScanCache()   // remove any camera photo left from a previous session
 
         // Result of the "camera or file" chooser -> hand the URI back to the page.
         chooserLauncher = registerForActivityResult(
@@ -76,7 +79,19 @@ class MainActivity : ComponentActivity() {
             override fun shouldInterceptRequest(
                 view: WebView,
                 request: WebResourceRequest
-            ): WebResourceResponse? = assetLoader.shouldInterceptRequest(request.url)
+            ): WebResourceResponse? {
+                val url = request.url
+                if (url.host == "appassets.androidplatform.net") {
+                    return assetLoader.shouldInterceptRequest(url)
+                }
+                // Fully-offline app: block anything that is NOT a bundled local
+                // asset, so no request can ever carry data off the device. (Belt +
+                // braces — the app also has no INTERNET permission at all.)
+                return WebResourceResponse(
+                    "text/plain", "utf-8", 403, "blocked",
+                    emptyMap(), ByteArrayInputStream(ByteArray(0))
+                )
+            }
         }
 
         webView.webChromeClient = object : WebChromeClient() {
@@ -141,6 +156,19 @@ class MainActivity : ComponentActivity() {
         } catch (e: Exception) {
             null
         }
+    }
+
+    /** Delete any captured-photo temp files from the app cache (DPDP hygiene). */
+    private fun clearScanCache() {
+        try {
+            cacheDir.listFiles()?.forEach { if (it.name.startsWith("scan_")) it.delete() }
+        } catch (_: Exception) {
+        }
+    }
+
+    override fun onDestroy() {
+        clearScanCache()   // leave no captured image behind when the app closes
+        super.onDestroy()
     }
 
     @Deprecated("Deprecated in Java")

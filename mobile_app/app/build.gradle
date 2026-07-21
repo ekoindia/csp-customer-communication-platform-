@@ -18,6 +18,8 @@ android {
     buildTypes {
         release {
             minifyEnabled false
+            debuggable false                     // not debuggable -> no ADB data extraction
+            signingConfig signingConfigs.debug   // sign with the auto debug key so it installs (sideload); not for Play Store
         }
     }
     compileOptions {

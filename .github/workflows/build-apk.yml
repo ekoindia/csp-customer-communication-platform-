@@ -12,6 +12,9 @@ on:
       - '.github/workflows/build-apk.yml'
   workflow_dispatch:
 
+permissions:
+  contents: write   # needed to publish the APK to a Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -66,13 +69,14 @@ jobs:
           wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
           unzip -q gradle-8.5-bin.zip
 
-      - name: Build debug APK
+      - name: Build release APK (non-debuggable, debug-signed for sideload)
         working-directory: mobile_app
-        run: ../gradle-8.5/bin/gradle assembleDebug --no-daemon --stacktrace
+        run: ../gradle-8.5/bin/gradle assembleRelease --no-daemon --stacktrace
 
       - name: Rename APK
         run: |
-          cp mobile_app/app/build/outputs/apk/debug/app-debug.apk CSP-Scan.apk
+          cp mobile_app/app/build/outputs/apk/release/app-release.apk CSP-Scan.apk
+          ls -lh CSP-Scan.apk
 
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
@@ -80,3 +84,15 @@ jobs:
           name: CSP-Scan-APK
           path: CSP-Scan.apk
           if-no-files-found: error
+
+      - name: Publish APK to a Release (direct .apk download, no zip)
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: apk-latest
+          name: CSP Scan — latest APK
+          body: |
+            Latest **CSP Scan** Android app (fully offline, no internet permission).
+            Download **CSP-Scan.apk** below and send it to the CSP over WhatsApp.
+          files: CSP-Scan.apk
+          fail_on_unmatched_files: true
+          make_latest: true
