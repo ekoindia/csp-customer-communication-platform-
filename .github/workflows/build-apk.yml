@@ -28,11 +28,38 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
 
-      - name: Bundle the scanner page into the app assets
+      - name: Bundle scanner + libraries (fully offline) into app assets
         run: |
-          mkdir -p mobile_app/app/src/main/assets
-          cp csp_dashboard/mobile_scanner/scan.html mobile_app/app/src/main/assets/scan.html
-          echo "Bundled scan.html:"; ls -l mobile_app/app/src/main/assets/
+          A=mobile_app/app/src/main/assets
+          B="https://appassets.androidplatform.net/assets/lib"
+          mkdir -p "$A/lib"
+          cp csp_dashboard/mobile_scanner/scan.html    "$A/scan.html"
+          cp csp_dashboard/mobile_scanner/manifest.json "$A/manifest.json"
+          cp csp_dashboard/mobile_scanner/icon.svg      "$A/icon.svg"
+          # Rewrite the BUNDLED copy so every library loads from local assets —
+          # the app then needs NO internet at runtime. (Source scan.html stays
+          # CDN-based so it can still be opened directly in a browser for demos.)
+          H="$A/scan.html"
+          sed -i "s#https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js#$B/tesseract.min.js#g" "$H"
+          sed -i "s#https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js#$B/xlsx.full.min.js#g" "$H"
+          sed -i "s#https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js#$B/pdf.min.js#g" "$H"
+          sed -i "s#https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js#$B/pdf.worker.min.js#g" "$H"
+          sed -i "s#,\"eng\",{logger:m=>{#,\"eng\",{workerPath:\"$B/worker.min.js\",corePath:\"$B/\",langPath:\"$B/\",logger:m=>{#g" "$H"
+          echo "== local lib refs in bundled scan.html =="; grep -c "appassets.androidplatform.net/assets/lib" "$H"
+          # Download the libraries into the bundle.
+          cd "$A/lib"
+          dl(){ echo "  -> $2"; curl -fsSL --retry 3 "$1" -o "$2"; }
+          dl https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js        tesseract.min.js
+          dl https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js           worker.min.js
+          dl https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js       tesseract-core.wasm.js
+          dl https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm          tesseract-core.wasm
+          dl https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd.wasm.js  tesseract-core-simd.wasm.js
+          dl https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core-simd.wasm     tesseract-core-simd.wasm
+          dl https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js           xlsx.full.min.js
+          dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js        pdf.min.js
+          dl https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js pdf.worker.min.js
+          dl https://tessdata.projectnaptha.com/4.0.0/eng.traineddata.gz             eng.traineddata.gz
+          echo "== bundled libs =="; ls -lh
 
       - name: Download Gradle 8.5
         run: |
