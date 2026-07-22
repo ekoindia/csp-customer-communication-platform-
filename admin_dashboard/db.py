@@ -26,6 +26,19 @@ def setup():
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(csps)")}
         if "dxdiag" not in cols:
             conn.execute("ALTER TABLE csps ADD COLUMN dxdiag TEXT")
+        conn.execute(
+            """CREATE TABLE IF NOT EXISTS ocr_metrics (
+                id              INTEGER PRIMARY KEY AUTOINCREMENT,
+                request_id      TEXT NOT NULL,
+                csp_id          TEXT NOT NULL,
+                file_type       TEXT,
+                page_count      INTEGER NOT NULL DEFAULT 0,
+                row_count       INTEGER NOT NULL DEFAULT 0,
+                latency_ms      INTEGER NOT NULL DEFAULT 0,
+                status          TEXT NOT NULL,
+                error_class     TEXT,
+                created_at      TEXT NOT NULL
+            )""")
         # Seed a default admin login so the portal is usable out of the box
         # (change this password for a real deployment). Deliberately NO demo
         # API key is seeded — a real, working credential should never ship by

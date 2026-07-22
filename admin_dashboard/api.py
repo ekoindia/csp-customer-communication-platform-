@@ -13,12 +13,42 @@ text / case id here — not even masked. Everything stored is operational (about
 the CSP machine/install) or an aggregate count (about a campaign).
 """
 from datetime import datetime, timezone
+import base64
+import hmac
+import io
+import threading
+import time
+import uuid
+
 from flask import Blueprint, request, jsonify
 
 from admin_dashboard.db import get_connection
 
+# NOTE: the OCR stack (cryptography / numpy / opencv / pypdfium2 / onnxtr) is
+# imported LAZILY inside ocr_extract(), never at module load. The admin portal
+# must boot on `flask` alone so the fleet-heartbeat endpoints (/report, /sync)
+# can NEVER be taken down by a missing or broken OCR dependency on the shared
+# server. If the OCR stack is absent, /ocr/extract returns a clean 503 and the
+# rest of the portal is unaffected.
+
 api_bp = Blueprint("admin_api", __name__)
 API_VERSION = "v1"
+
+# Bounds simultaneous OCR jobs so a burst can't exhaust RAM on the shared box
+# and starve the heartbeat endpoints. Built once, lazily (needs config).
+_OCR_SEMAPHORE = None
+_OCR_SEM_LOCK = threading.Lock()
+
+
+def _ocr_semaphore():
+    global _OCR_SEMAPHORE
+    if _OCR_SEMAPHORE is None:
+        with _OCR_SEM_LOCK:
+            if _OCR_SEMAPHORE is None:
+                import config
+                n = max(1, int(getattr(config, "SERVER_OCR_MAX_CONCURRENCY", 2)))
+                _OCR_SEMAPHORE = threading.BoundedSemaphore(n)
+    return _OCR_SEMAPHORE
 
 
 def _now():
@@ -31,7 +61,10 @@ def _valid_key(conn, csp_id, key):
     row = conn.execute(
         "SELECT api_key, active FROM api_keys WHERE csp_id=?", (csp_id,)
     ).fetchone()
-    return bool(row) and row["active"] == 1 and row["api_key"] == key
+    # Constant-time compare: never leak how many leading characters of the key
+    # matched via response timing. Applies to /report and /sync too.
+    return (bool(row) and row["active"] == 1
+            and hmac.compare_digest(str(row["api_key"]), str(key)))
 
 
 def _i(d, k):
@@ -60,11 +93,214 @@ def queue_command(csp_id: str, command: str, payload: str = None):
         conn.commit()
 
 
+def _record_ocr_metric(conn, request_id: str, csp_id: str, file_type: str,
+                       page_count: int, row_count: int, latency_ms: int,
+                       status: str, error_class: str = None):
+    conn.execute(
+        """INSERT INTO ocr_metrics (request_id, csp_id, file_type, page_count,
+               row_count, latency_ms, status, error_class, created_at)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (request_id, csp_id, file_type, int(page_count or 0), int(row_count or 0),
+         int(latency_ms or 0), status, (error_class or "")[:80], _now()))
+
+
+def _b64_file(payload: dict) -> bytes:
+    try:
+        return base64.b64decode(str(payload.get("file_b64") or "").encode("ascii"),
+                                validate=True)
+    except Exception as e:
+        raise ValueError("bad file payload") from e
+
+
+def _release_ocr_memory():
+    """Best-effort memory reclaim after each OCR request. Never raises."""
+    try:
+        import gc
+        gc.collect()
+    except Exception:
+        pass
+
+
+def _extract_ocr_rows(file_bytes: bytes, file_type: str, page_from=None,
+                      page_to=None) -> tuple[list, int]:
+    """Run OCR from bytes only. Returns (rows, page_count). No disk writes."""
+    import config
+    from core import ocr_table
+
+    engine = str(getattr(config, "SERVER_OCR_ENGINE", "onnxtr") or "onnxtr").lower()
+    allowed = {"rapidocr", "onnxtr", "doctr", "paddle", "tesseract"}
+    if engine not in allowed:
+        raise ValueError("unsupported SERVER_OCR_ENGINE")
+    if engine == "onnxtr" and not ocr_table.onnxtr_available():
+        raise RuntimeError("SERVER_OCR_ENGINE=onnxtr but OnnxTR/models are not installed")
+
+    old_override = getattr(ocr_table, "_ENGINE_OVERRIDE", None)
+    old_strict = getattr(ocr_table, "_STRICT_ENGINE", False)
+    old_engine = getattr(config, "OCR_ENGINE", "auto")
+    ocr_table._ENGINE_OVERRIDE = engine
+    ocr_table._STRICT_ENGINE = True
+    config.OCR_ENGINE = engine
+    try:
+        return _extract_ocr_rows_with_engine(file_bytes, file_type, page_from, page_to)
+    finally:
+        ocr_table._ENGINE_OVERRIDE = old_override
+        ocr_table._STRICT_ENGINE = old_strict
+        config.OCR_ENGINE = old_engine
+
+
+def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=None,
+                                  page_to=None) -> tuple[list, int]:
+    """OCR implementation after the server engine has been pinned."""
+    if file_type == "image":
+        from PIL import Image
+        from core.ocr_table import extract_rows_from_pil
+        img = Image.open(io.BytesIO(file_bytes))
+        try:
+            return extract_rows_from_pil(img), 1
+        finally:
+            try:
+                img.close()
+            except Exception:
+                pass
+
+    if file_type != "pdf":
+        raise ValueError("unsupported OCR file_type")
+
+    import gc
+    import pypdfium2 as pdfium
+    from core.ocr_table import extract_rows_from_pil, release_doctr_model, release_onnxtr_model
+
+    rows = []
+    pdf = pdfium.PdfDocument(file_bytes)
+    try:
+        total = len(pdf)
+        lo = max(1, int(page_from or 1))
+        hi = min(total, int(page_to or total))
+        if lo > hi:
+            lo, hi = 1, total
+        dpi = int(getattr(config, "SERVER_OCR_RENDER_DPI", 300))
+        scale = dpi / 72
+        for pno in range(lo - 1, hi):
+            page = pdf[pno]
+            bitmap = page.render(scale=scale)
+            pil = bitmap.to_pil()
+            try:
+                rows.extend(extract_rows_from_pil(pil))
+            finally:
+                try:
+                    pil.close()
+                except Exception:
+                    pass
+                try:
+                    bitmap.close()
+                    page.close()
+                except Exception:
+                    pass
+                gc.collect()
+        return rows, hi - lo + 1
+    finally:
+        pdf.close()
+        release_doctr_model()
+        release_onnxtr_model()
+
+
 @api_bp.route("/api/v1", methods=["GET"])
 def api_root():
     """Health/discovery for the single Eko API."""
     return jsonify({"ok": True, "service": "eko-admin-api", "version": API_VERSION,
-                    "endpoints": ["/api/v1/report (POST)", "/api/v1/sync (GET)"]})
+                    "endpoints": ["/api/v1/report (POST)", "/api/v1/sync (GET)",
+                                  "/api/v1/ocr/extract (POST)"]})
+
+
+@api_bp.route("/api/v1/ocr/extract", methods=["POST"])
+def ocr_extract():
+    """Centralized OCR Tier 1.
+
+    Auth: same per-CSP API key as /report and /sync (constant-time compare).
+    Request/response: AES-GCM envelope (core.ocr_envelope). The response body is
+    an encrypted, in-memory .xlsx (xlsx_b64) — never rows in the clear, never a
+    file on disk. Persistence: metrics only (core.ocr_metrics) — never
+    filenames, images, text, or extracted rows.
+
+    The whole OCR stack is imported HERE, lazily: if any dependency is missing
+    or broken on this server, only this endpoint degrades (clean 503); the fleet
+    heartbeat endpoints (/report, /sync) are never affected.
+    """
+    try:
+        from core.ocr_envelope import EnvelopeError, decrypt_json, encrypt_json
+        from core.ocr_excel import rows_to_xlsx_bytes
+    except Exception:  # ImportError or a broken transitive dep — never fatal
+        return jsonify({"ok": False, "error": "ocr_unavailable"}), 503
+
+    key = request.headers.get("X-API-Key", "")
+    body = request.get_json(silent=True) or {}
+    csp_id = str(body.get("csp_id") or "").strip()
+
+    started = time.monotonic()
+    request_id = uuid.uuid4().hex
+    with get_connection() as conn:
+        if not _valid_key(conn, csp_id, key):
+            return jsonify({"ok": False, "error": "invalid csp_id or API key"}), 401
+
+        # Decrypt (cheap) BEFORE taking an OCR slot, so a malformed payload can
+        # never occupy scarce compute capacity.
+        try:
+            payload = decrypt_json(body.get("payload"), key)
+        except EnvelopeError as e:
+            _record_ocr_metric(conn, request_id, csp_id, "", 0, 0,
+                               int((time.monotonic() - started) * 1000),
+                               "error", e.__class__.__name__)
+            conn.commit()
+            return jsonify({"ok": False, "error": "bad encrypted payload"}), 400
+
+        request_id = str(payload.get("request_id") or request_id)[:64]
+        file_type = str(payload.get("file_type") or "").lower()[:20]
+
+        # Bounded concurrency: if the box is already at capacity, don't queue
+        # (which would pile up threads + RAM) — tell the client to back off. The
+        # client falls back to local OCR, so no request is ever lost.
+        sem = _ocr_semaphore()
+        if not sem.acquire(blocking=False):
+            _record_ocr_metric(conn, request_id, csp_id, file_type, 0, 0,
+                               int((time.monotonic() - started) * 1000),
+                               "busy", "AtCapacity")
+            conn.commit()
+            return jsonify({"ok": False, "error": "ocr_busy"}), 503
+
+        try:
+            import config
+            max_mb = int(getattr(config, "SERVER_OCR_MAX_MB", 100))
+            file_bytes = _b64_file(payload)
+            if len(file_bytes) > max_mb * 1024 * 1024:
+                raise ValueError("file too large")
+            rows, pages = _extract_ocr_rows(
+                file_bytes, file_type,
+                page_from=payload.get("page_from"),
+                page_to=payload.get("page_to"),
+            )
+            # Serialize to .xlsx entirely in RAM (all-text cells -> lossless).
+            xlsx_b64 = base64.b64encode(rows_to_xlsx_bytes(rows)).decode("ascii")
+            latency_ms = int((time.monotonic() - started) * 1000)
+            _record_ocr_metric(conn, request_id, csp_id, file_type, pages,
+                               len(rows), latency_ms, "ok")
+            conn.commit()
+            encrypted = encrypt_json({
+                "request_id": request_id,
+                "xlsx_b64": xlsx_b64,
+                "page_count": pages,
+                "row_count": len(rows),
+            }, key)
+            return jsonify({"ok": True, "payload": encrypted})
+        except Exception as e:  # noqa: BLE001 - return a clean OCR failure
+            latency_ms = int((time.monotonic() - started) * 1000)
+            _record_ocr_metric(conn, request_id, csp_id, file_type, 0, 0,
+                               latency_ms, "error", e.__class__.__name__)
+            conn.commit()
+            return jsonify({"ok": False, "error": "OCR failed"}), 500
+        finally:
+            # Free the OCR slot AND the model/image memory for this request.
+            sem.release()
+            _release_ocr_memory()
 
 
 @api_bp.route("/api/v1/sync", methods=["GET"])
