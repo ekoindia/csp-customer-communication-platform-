@@ -1,0 +1,20 @@
+# Eko RAG/admin server OCR profile.
+#
+# Target tested deployment OS: Ubuntu/Linux server.
+# Target Python: 3.12.x (the RAG server reports Python 3.12.3).
+#
+# This profile is for centralized OCR compute and deliberately does NOT require
+# the system Tesseract executable. The OCR service pins SERVER_OCR_ENGINE
+# (default: rapidocr) and runs in strict deep-engine mode so it will fail
+# cleanly if the configured model package is missing instead of silently
+# falling back to Tesseract.
+
+-r ../csp_dashboard/requirements-lite.txt
+
+# RapidOCR runs PaddleOCR-style OCR models on ONNX Runtime CPU. PyPI declares
+# Python 3.12 support for rapidocr-onnxruntime 1.4.x.
+rapidocr-onnxruntime==1.4.4
+
+# Keep OnnxTR available as a selectable fallback/benchmark engine:
+#   SERVER_OCR_ENGINE=onnxtr
+onnxtr==0.8.1

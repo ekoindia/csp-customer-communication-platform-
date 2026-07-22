@@ -52,6 +52,11 @@ echo "== Python venv + deps (flask + python-dotenv) =="
 python3 -m venv .venv_linux
 .venv_linux/bin/pip install -q --upgrade pip
 .venv_linux/bin/pip install -q flask python-dotenv
+# Centralized-OCR service deps. Best-effort (see update_admin.sh): the portal
+# runs without them; /api/v1/ocr/extract returns 503 until they are present.
+echo "== Centralized-OCR deps (best-effort; may take a few minutes) =="
+.venv_linux/bin/pip install -q -r admin_dashboard/requirements-ocr-server.txt \
+    || echo "  (OCR deps install failed — OCR endpoint will 503 until fixed; portal still runs)"
 
 echo "== Start the portal =="
 chmod +x admin_dashboard/deploy/*.sh
