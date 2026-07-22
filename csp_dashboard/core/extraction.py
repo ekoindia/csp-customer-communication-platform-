@@ -203,6 +203,15 @@ def _ocr_pdf(path: str, ddir: str, start_idx: int,
     """OCR the requested page range of a scanned PDF; save oriented page images.
     Returns (rows, image_paths, span) where span records what was processed.
     progress: optional callback progress(done, total, message) per page."""
+    server_result = _try_server_ocr(path, "pdf", page_from, page_to, progress)
+    if server_result:
+        rows, span = server_result
+        # Centralized OCR path: nothing is written to the CSP disk (no source
+        # page images). The CSP reviews the extracted rows as a table, exactly
+        # like a bank Excel/CSV upload. This keeps the scanned document off the
+        # local machine entirely (it only ever existed encrypted, in transit).
+        return rows, [], span
+
     from core.ocr_table import extract_with_image
     import pypdfium2 as pdfium
 
@@ -280,6 +289,12 @@ def _ocr_pdf(path: str, ddir: str, start_idx: int,
 def _ocr_image(path: str, ddir: str, start_idx: int):
     from PIL import Image
     from core.ocr_table import extract_with_image
+    server_result = _try_server_ocr(path, "image", None, None, None)
+    if server_result:
+        rows, _span = server_result
+        # Centralized OCR path: nothing written to the CSP disk (table-only
+        # review), the image only ever existed encrypted in transit.
+        return rows, []
     # Reject decompression-bomb images and check free RAM before decoding a
     # potentially large user-supplied image on the 4 GB box.
     Image.MAX_IMAGE_PIXELS = OCR_MAX_IMAGE_PIXELS
@@ -290,6 +305,42 @@ def _ocr_image(path: str, ddir: str, start_idx: int):
     release_doctr_model()
     release_onnxtr_model()   # free the ONNX sessions (~600 MB) after the batch too
     return page_rows, [_save_page(oriented, ddir, start_idx)]
+
+
+def _try_server_ocr(path: str, file_type: str, page_from: int = None,
+                    page_to: int = None, progress=None):
+    """Try centralized OCR and return (rows, span_or_none), else None.
+
+    The server returns an encrypted .xlsx; we parse it into rows entirely in
+    memory (core.ocr_excel — never written to disk) and hand those rows to the
+    same draft/review pipeline a bank Excel upload uses. Any server / network /
+    auth / model / parse failure returns None, and the caller falls back to
+    local OCR — so the CSP always reaches the same review gate.
+    """
+    try:
+        from core import server_ocr_client
+        if not server_ocr_client.enabled():
+            return None
+        if progress:
+            progress(0, 1000, "Sending scan to Eko OCR service...")
+        result = server_ocr_client.extract_file(path, file_type, page_from, page_to)
+        from core.ocr_excel import xlsx_bytes_to_rows
+        rows = xlsx_bytes_to_rows(result.get("xlsx_bytes") or b"")
+        if not rows:
+            return None
+        if progress:
+            progress(900, 1000, f"Eko OCR read {len(rows)} row(s)")
+        span = None
+        if file_type == "pdf":
+            span = {"from": page_from or 1,
+                    "to": page_to or result.get("page_count") or page_from or 1,
+                    "total": result.get("page_count") or page_to or page_from or 1}
+        return rows, span
+    except Exception as e:  # noqa: BLE001 - centralized OCR is optional fallback
+        print(f"[server-ocr] falling back to local OCR: {e}")
+        if progress:
+            progress(0, 1000, "Server OCR unavailable; using local OCR...")
+        return None
 
 
 def _save_page(pil_img, ddir: str, index: int) -> str:

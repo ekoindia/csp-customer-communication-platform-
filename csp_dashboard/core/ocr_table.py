@@ -128,6 +128,7 @@ _CONTACT_ROW_OFFSET = 0
 _TESSERACT_OK = None
 _DOCTR_MODEL = None
 _PADDLE_MODEL = None
+_RAPIDOCR_MODEL = None
 
 
 def _ensure_tesseract():
@@ -297,6 +298,82 @@ def _paddle_words(gray_np: np.ndarray):
     return words or None
 
 
+def _rapidocr_model():
+    """Lazily build RapidOCR.
+
+    RapidOCR runs PaddleOCR-style detection/recognition models on ONNX Runtime
+    CPU. This is the intended centralized-server engine for the 40-thread,
+    128-GB RAG box: stronger than Tesseract, no GPU/PaddlePaddle install, and
+    Python 3.12 compatible via rapidocr-onnxruntime.
+    """
+    global _RAPIDOCR_MODEL
+    if _RAPIDOCR_MODEL is None:
+        try:
+            from rapidocr_onnxruntime import RapidOCR
+        except ImportError:
+            from rapidocr import RapidOCR
+        _RAPIDOCR_MODEL = RapidOCR()
+    return _RAPIDOCR_MODEL
+
+
+def _rapidocr_words(gray_np: np.ndarray):
+    """Run RapidOCR and return words as {t, x, yc, conf} in pixel coords."""
+    try:
+        model = _rapidocr_model()
+    except Exception:
+        return None
+    rgb = (np.stack([gray_np] * 3, axis=-1).astype("uint8")
+           if gray_np.ndim == 2 else gray_np.astype("uint8"))
+    try:
+        result = model(rgb)
+    except Exception:
+        return None
+
+    # rapidocr-onnxruntime returns (result, elapse). Newer rapidocr may return
+    # an OCRResult object with boxes/txts/scores. Support both shapes.
+    entries = None
+    if isinstance(result, tuple):
+        entries = result[0]
+    elif hasattr(result, "boxes") and hasattr(result, "txts"):
+        boxes = result.boxes
+        txts = result.txts
+        scores = getattr(result, "scores", [1.0] * len(txts))
+        entries = [[box, text, score] for box, text, score in zip(boxes, txts, scores)]
+    else:
+        entries = result
+    if not entries:
+        return None
+
+    words = []
+    for entry in entries:
+        try:
+            if isinstance(entry, dict):
+                box = entry.get("box") or entry.get("points")
+                text = entry.get("text") or entry.get("txt")
+                conf = entry.get("score") or entry.get("confidence") or 1.0
+            else:
+                box = entry[0]
+                if len(entry) >= 3 and isinstance(entry[1], str):
+                    text, conf = entry[1], entry[2]
+                else:
+                    rec = entry[1]
+                    text = rec[0] if isinstance(rec, (list, tuple)) else rec
+                    conf = rec[1] if isinstance(rec, (list, tuple)) and len(rec) > 1 else 1.0
+            if not text or box is None:
+                continue
+            xs = [float(p[0]) for p in box]
+            ys = [float(p[1]) for p in box]
+            words.append({
+                "t": str(text),
+                "x": sum(xs) / len(xs),
+                "yc": sum(ys) / len(ys),
+                "conf": float(conf or 0.0),
+            })
+        except (TypeError, IndexError, ValueError):
+            continue
+    return words or None
+
+
 # ── OnnxTR: docTR's models on ONNX Runtime — deep-learning accuracy, NO PyTorch ──
 # This is the ACCURATE engine for the 4 GB CPU-only CSP box. It runs bundled ONNX
 # models via onnxruntime (~700 MB peak, fits 4 GB) so extraction on a scanned
@@ -415,10 +492,11 @@ def _onnxtr_words(gray_np: np.ndarray):
     return words or None
 
 
-# Benchmark/testing hook: when set to "paddle", "doctr" or "onnxtr", _page_words
+# Benchmark/testing hook: when set to "rapidocr", "paddle", "doctr" or "onnxtr", _page_words
 # uses ONLY that engine with no fallback, so scripts/ocr_benchmark.py can compare
 # engines head-to-head on the same page. Left None in normal operation.
 _ENGINE_OVERRIDE = None
+_STRICT_ENGINE = False
 
 
 def _tesseract_words(gray_np: np.ndarray):
@@ -456,9 +534,11 @@ def _page_words(gray_np: np.ndarray):
     (None, None). On a low-RAM box this resolves to Tesseract and never imports
     torch; on a capable box it uses docTR and falls back to Tesseract only if
     the deep-learning engine is unavailable — so extraction always works."""
-    if _ENGINE_OVERRIDE in ("paddle", "doctr", "tesseract", "onnxtr"):
+    if _ENGINE_OVERRIDE in ("rapidocr", "paddle", "doctr", "tesseract", "onnxtr"):
         if _ENGINE_OVERRIDE == "paddle":
             words = _paddle_words(gray_np)
+        elif _ENGINE_OVERRIDE == "rapidocr":
+            words = _rapidocr_words(gray_np)
         elif _ENGINE_OVERRIDE == "tesseract":
             words = _tesseract_words(gray_np)
         elif _ENGINE_OVERRIDE == "onnxtr":
@@ -481,6 +561,11 @@ def _page_words(gray_np: np.ndarray):
         # Low-RAM machine without onnxtr: stay light, do NOT load PyTorch.
         words = _tesseract_words(gray_np)
         return (words, "tesseract") if words else (None, None)
+
+    if engine == "rapidocr":
+        words = _rapidocr_words(gray_np)
+        if words or _STRICT_ENGINE:
+            return (words, "rapidocr") if words else (None, None)
 
     # docTR / paddle machine: try the deep-learning engine(s), then fall back to
     # Tesseract so a missing/broken torch install still produces a draft.
@@ -520,6 +605,29 @@ def detect_angle(gray: Image.Image) -> int:
                 best_angle, best_score = angle, score
         if best_score > 0:
             return best_angle
+    return best_angle
+
+
+def _detect_angle_deep(gray: Image.Image) -> int:
+    """Orientation probe for centralized/deep OCR mode.
+
+    Unlike detect_angle(), this does not call Tesseract. It rotates a bounded
+    probe image and scores the configured deep engine's detected words.
+    """
+    probe = gray.copy()
+    probe.thumbnail((1800, 1800))
+    best_angle, best_score = 0, -1
+    for angle in (0, 90, 180, 270):
+        rot = probe.rotate(-angle, expand=True)
+        words, _ = _page_words(np.array(rot))
+        words = words or []
+        digit_hits = sum(1 for w in words
+                         if 10 <= len(_clean_digits(w.get("t", ""))) <= 16)
+        band_hits = sum(1 for w in words if _BAND_RE.search(w.get("t", "")))
+        alpha_hits = sum(1 for w in words if _is_word(w.get("t", "")))
+        score = digit_hits * 4 + band_hits * 3 + alpha_hits
+        if score > best_score:
+            best_angle, best_score = angle, score
     return best_angle
 
 
@@ -722,10 +830,9 @@ def extract_with_image(pil_img: Image.Image, angle: int = None, on_row=None):
     Pass a known `angle` to skip per-page detection (much faster for a batch).
     on_row(done_rows, total_rows): optional callback fired as each row of the
     page is read, so the UI can show a REAL (per-row) progress bar."""
-    _ensure_tesseract()
     gray = pil_img.convert("L")
     if angle is None:
-        angle = detect_angle(gray)
+        angle = _detect_angle_deep(gray) if _STRICT_ENGINE else detect_angle(gray)
     gray = gray.rotate(-angle, expand=True)
     rows = _extract_from_oriented(gray, on_row=on_row)
     return gray, rows, angle
@@ -816,8 +923,10 @@ def _extract_content(gray_np: np.ndarray, words, on_row=None):
         y0, y1 = max(0, int(ay - h * 0.45)), min(H, int(ay + h * 0.45))
         if y1 - y0 < 4 or x1m - x0m < 4:
             continue
-        cand = _valid_mobile(_clean_digits(
-            _ocr_cell(gray_np, y0, y1, x0m, x1m, whitelist="0123456789")))
+        cand = ""
+        if not _STRICT_ENGINE:
+            cand = _valid_mobile(_clean_digits(
+                _ocr_cell(gray_np, y0, y1, x0m, x1m, whitelist="0123456789")))
         if not cand:
             try:
                 from core import ocr_onnx
@@ -852,12 +961,14 @@ def _extract_from_oriented(gray: Image.Image, on_row=None) -> List[Dict]:
         engine = _ENGINE_OVERRIDE or hardware.resolve_ocr_engine()
     except Exception:
         engine = _ENGINE_OVERRIDE
-    if engine in ("onnxtr", "doctr", "paddle"):
+    if engine in ("rapidocr", "onnxtr", "doctr", "paddle"):
         words, _eng = _page_words(gray_np)
         if words:
             content = _extract_content(gray_np, words, on_row=on_row)
             if content:
                 return content
+        if _STRICT_ENGINE:
+            return []
 
     # On the 4 GB deploy box (Tesseract engine) the OCR word-reader is too weak
     # to locate all rows. If the trained on-device digit model is available,
@@ -1169,7 +1280,7 @@ def _extract_grid(gray_np: np.ndarray):
     # the real page — so for those engines TRUST the engine text first and use the
     # custom model only as a fallback. On the weak Tesseract path it's the reverse
     # (the custom model beats Tesseract), so that path tries the model first.
-    _deep = _engine in ("onnxtr", "doctr", "paddle")
+    _deep = _engine in ("rapidocr", "onnxtr", "doctr", "paddle")
 
     def read_account(ri):
         cands = ([_clean_digits(cell(ri, account_col)), onnx_cell(account_col, ri)]
@@ -1433,5 +1544,3 @@ def iter_training_cells(gray_np: np.ndarray):
                 continue
             guess = _clean_digits(_ocr_cell(gray_np, y0, y1, xs[c], xs[c + 1], whitelist="0123456789"))
             yield field, crop, guess, _eng_read(ri, c)
-
-

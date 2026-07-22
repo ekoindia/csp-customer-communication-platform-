@@ -113,6 +113,21 @@ CREATE TABLE IF NOT EXISTS update_events (
     ts           TEXT NOT NULL
 );
 
+-- Centralized OCR operational metrics. CONTENT MUST NEVER BE STORED HERE:
+-- no filenames, no extracted text, no image bytes, no customer identifiers.
+CREATE TABLE IF NOT EXISTS ocr_metrics (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    request_id      TEXT NOT NULL,
+    csp_id          TEXT NOT NULL,
+    file_type       TEXT,
+    page_count      INTEGER NOT NULL DEFAULT 0,
+    row_count       INTEGER NOT NULL DEFAULT 0,
+    latency_ms      INTEGER NOT NULL DEFAULT 0,
+    status          TEXT NOT NULL,              -- ok | error
+    error_class     TEXT,
+    created_at      TEXT NOT NULL
+);
+
 -- Server-set config the CSPs read via /sync (e.g. latest_version for updates).
 CREATE TABLE IF NOT EXISTS server_config (
     key         TEXT PRIMARY KEY,

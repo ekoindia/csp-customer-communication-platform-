@@ -124,6 +124,32 @@ OCR_RENDER_DPI = "auto"
 OCR_LOW_RAM_DPI = 260   # printed tables read better at 260 than 220; still fits 4 GB
 OCR_HIGH_RAM_DPI = 300
 
+# Centralized OCR (Eko RAG/admin server, Tier 1).
+# Disabled by default until the DPA/go-live switch is ready. When enabled, the
+# CSP sends scanned PDFs/images to {ADMIN_API_BASE}/ocr/extract using the same
+# per-CSP API key, with an AES-GCM app-layer envelope. The server runs OCR fully
+# in RAM and returns an encrypted .xlsx (never rows in the clear, never a file on
+# disk on either side); the CSP parses that .xlsx in memory into the SAME review
+# gate as a bank Excel upload. Cases/messages always remain local.
+SERVER_OCR_ENABLED = os.environ.get("SERVER_OCR_ENABLED", "0") == "1"
+# Default engine = onnxtr: the ONLY engine with MEASURED accuracy on the real
+# SBI scans (account 100% / name 99% / band 95% / mobile 85% across a 29-page
+# scan). rapidocr (PP-OCR on ONNX) is kept as a selectable challenger but must
+# beat onnxtr on a real benchmark before it earns the default (scripts/ocr_benchmark.py).
+SERVER_OCR_ENGINE = os.environ.get("SERVER_OCR_ENGINE", "onnxtr").lower()
+SERVER_OCR_TIMEOUT_SEC = int(os.environ.get("SERVER_OCR_TIMEOUT_SEC", "900"))
+SERVER_OCR_MAX_MB = int(os.environ.get("SERVER_OCR_MAX_MB", "100"))
+SERVER_OCR_RENDER_DPI = int(os.environ.get("SERVER_OCR_RENDER_DPI", "300"))
+# Protect the shared portal box: cap simultaneous OCR jobs so a burst can't
+# exhaust RAM / starve the fleet-heartbeat endpoints they share a process with.
+SERVER_OCR_MAX_CONCURRENCY = int(os.environ.get("SERVER_OCR_MAX_CONCURRENCY", "2"))
+# How long a client waits for an OCR slot on the server before giving up (and
+# falling back to local OCR). Separate from the OCR compute timeout above.
+SERVER_OCR_QUEUE_WAIT_SEC = int(os.environ.get("SERVER_OCR_QUEUE_WAIT_SEC", "20"))
+# CSP-side retries for transient network / 5xx failures before falling back to
+# local OCR. Kept small — the local fallback is always there.
+SERVER_OCR_RETRIES = int(os.environ.get("SERVER_OCR_RETRIES", "2"))
+
 # ── Minimum hardware the platform supports (the "hardware constraint") ───────
 # Single source of truth, used by the install-time gate (INSTALL.bat) and the
 # deploy preflight (deploy_check.py). The CONFIRMED deploy PC — Dell Inspiron
