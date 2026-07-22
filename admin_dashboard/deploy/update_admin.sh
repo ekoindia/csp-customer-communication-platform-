@@ -19,6 +19,12 @@ git pull --ff-only
 
 echo "== Ensuring deps =="
 .venv_linux/bin/pip install -q flask python-dotenv
+# Centralized-OCR service deps (numpy/opencv/onnxtr/pypdfium2/cryptography/...).
+# Best-effort: the portal boots WITHOUT them — /api/v1/ocr/extract lazy-imports
+# the OCR stack and returns 503 if absent — so a failure here must NOT abort the
+# deploy or take the fleet-heartbeat endpoints down.
+.venv_linux/bin/pip install -q -r admin_dashboard/requirements-ocr-server.txt \
+    || echo "  (OCR deps install failed — OCR endpoint will 503 until fixed; portal still runs)"
 
 echo "== Restarting =="
 chmod +x admin_dashboard/deploy/*.sh

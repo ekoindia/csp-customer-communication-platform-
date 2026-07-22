@@ -88,6 +88,7 @@
       <a href="{{ url_for('admin_ui.earnings') }}"     class="{{ 'active' if ep=='admin_ui.earnings' }}">Earnings</a>
       <a href="{{ url_for('admin_ui.api_keys') }}"     class="{{ 'active' if ep=='admin_ui.api_keys' }}">API Keys</a>
       <a href="{{ url_for('admin_ui.whatsapp_health') }}" class="{{ 'active' if ep=='admin_ui.whatsapp_health' }}">WhatsApp Health</a>
+      <a href="{{ url_for('admin_ui.ocr_log') }}"       class="{{ 'active' if ep=='admin_ui.ocr_log' }}">OCR Log</a>
     </nav>
     <div class="foot">{{ session.get('admin_login') }}<br>
       <a href="{{ url_for('admin_ui.logout') }}">Logout</a></div>

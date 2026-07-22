@@ -365,6 +365,38 @@ def download_release(release_id, filename):
                                as_attachment=True, download_name=row["filename"])
 
 
+@ui_bp.route("/ocr-log")
+@login_required
+def ocr_log():
+    """Centralized-OCR sharing log — PII-FREE by construction.
+
+    ocr_metrics stores ONLY operational facts about each OCR request (which CSP,
+    when, file type, page/row COUNTS, latency, ok/error/busy) — never a
+    filename, image, extracted text, or any customer identifier. This page is
+    the audit/monitoring view of that: 'kis CSP ne kab kitni OCR bheji', with no
+    way to see what was in any document."""
+    with get_connection() as conn:
+        recent = conn.execute(
+            """SELECT request_id, csp_id, file_type, page_count, row_count,
+                      latency_ms, status, error_class, created_at
+               FROM ocr_metrics ORDER BY id DESC LIMIT 200""").fetchall()
+        agg = conn.execute(
+            """SELECT COUNT(*) requests,
+                      COALESCE(SUM(page_count),0) pages,
+                      COALESCE(SUM(row_count),0) rows,
+                      COALESCE(SUM(CASE WHEN status='ok' THEN 1 ELSE 0 END),0) ok,
+                      COALESCE(SUM(CASE WHEN status='error' THEN 1 ELSE 0 END),0) errors,
+                      COALESCE(SUM(CASE WHEN status='busy' THEN 1 ELSE 0 END),0) busy
+               FROM ocr_metrics""").fetchone()
+        per_csp = conn.execute(
+            """SELECT csp_id, COUNT(*) requests,
+                      COALESCE(SUM(page_count),0) pages,
+                      COALESCE(SUM(row_count),0) rows
+               FROM ocr_metrics GROUP BY csp_id ORDER BY requests DESC""").fetchall()
+    return render_template("admin_ocr_log.html", recent=recent, agg=agg,
+                           per_csp=per_csp)
+
+
 @ui_bp.route("/whatsapp")
 @login_required
 def whatsapp_health():

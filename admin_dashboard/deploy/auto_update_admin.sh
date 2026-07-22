@@ -54,6 +54,12 @@ fi
 
 # Keep deps in sync (a few-second no-op unless a release added a library).
 .venv_linux/bin/pip install -q flask python-dotenv >>"$LOG" 2>&1 || log "pip step warned (continuing)"
+# Centralized-OCR service deps. Best-effort: the portal boots WITHOUT them (the
+# OCR endpoint lazy-imports its stack and returns 503 if absent), so a failure
+# here must NEVER block the deploy/restart of the fleet portal. Normally a
+# fast no-op once installed; only the first sync after the OCR release is slow.
+.venv_linux/bin/pip install -q -r admin_dashboard/requirements-ocr-server.txt >>"$LOG" 2>&1 \
+    || log "OCR deps install warned (OCR endpoint may be 503 until fixed; portal unaffected)"
 
 chmod +x admin_dashboard/deploy/*.sh
 if ADMIN_BIND_PORT="${ADMIN_BIND_PORT:-7000}" ./admin_dashboard/deploy/restart_admin.sh >>"$LOG" 2>&1; then

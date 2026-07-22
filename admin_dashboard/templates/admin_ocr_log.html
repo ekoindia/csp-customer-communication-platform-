@@ -1,0 +1,53 @@
+{% extends "admin_base.html" %}
+{% block title %}OCR Sharing Log - Eko Admin Portal{% endblock %}
+{% block body %}
+<h1>OCR sharing log</h1>
+<p class="sub">Centralized OCR is <strong>process-and-forget</strong>: images and
+extracted text are decrypted only in memory and wiped after each request. This
+log keeps <strong>counts only</strong> — never a filename, image, extracted
+text, or any customer identifier.</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ agg.requests }}</div><div class="l">Requests</div></div>
+  <div class="card"><div class="v">{{ agg.pages }}</div><div class="l">Pages read</div></div>
+  <div class="card"><div class="v">{{ agg.rows }}</div><div class="l">Rows extracted</div></div>
+  <div class="card"><div class="v" style="color:var(--ok)">{{ agg.ok }}</div><div class="l">OK</div></div>
+  <div class="card"><div class="v" style="color:var(--bad)">{{ agg.errors }}</div><div class="l">Errors</div></div>
+  <div class="card"><div class="v">{{ agg.busy }}</div><div class="l">Busy (backed off)</div></div>
+</div>
+
+<h2 style="margin-top:1.4rem">Per CSP</h2>
+<table>
+  <thead><tr><th>CSP</th><th>Requests</th><th>Pages</th><th>Rows</th></tr></thead>
+  <tbody>
+  {% for c in per_csp %}
+    <tr><td>{{ c.csp_id }}</td><td>{{ c.requests }}</td><td>{{ c.pages }}</td><td>{{ c.rows }}</td></tr>
+  {% else %}
+    <tr><td colspan="4" style="color:var(--muted)">No OCR requests yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+
+<h2 style="margin-top:1.4rem">Recent requests (last 200)</h2>
+<table>
+  <thead><tr><th>When</th><th>CSP</th><th>Type</th><th>Pages</th><th>Rows</th>
+             <th>Latency</th><th>Status</th></tr></thead>
+  <tbody>
+  {% for r in recent %}
+    <tr>
+      <td>{{ r.created_at | ist }}</td>
+      <td>{{ r.csp_id }}</td>
+      <td>{{ r.file_type or '-' }}</td>
+      <td>{{ r.page_count }}</td>
+      <td>{{ r.row_count }}</td>
+      <td>{{ '%.1f'|format(r.latency_ms / 1000.0) }}s</td>
+      <td>{% if r.status == 'ok' %}<span class="pill ok">ok</span>
+          {% elif r.status == 'busy' %}<span class="pill off">busy</span>
+          {% else %}<span class="pill bad">{{ r.error_class or 'error' }}</span>{% endif %}</td>
+    </tr>
+  {% else %}
+    <tr><td colspan="7" style="color:var(--muted)">No OCR requests yet.</td></tr>
+  {% endfor %}
+  </tbody>
+</table>
+{% endblock %}
