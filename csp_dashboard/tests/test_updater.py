@@ -125,11 +125,18 @@ def test_admin_publish_and_sync_flow(tmpdir, monkeypatch):
     ik = c.post("/api-keys", data={"action": "issue", "csp_id": "CSP001"})
     api_key = re.search(r'id="newKeyValue"[^>]*>([^<]+)<', ik.get_data(as_text=True)).group(1).strip()
 
-    # publish a version
-    r = c.post("/updates", data={"action": "publish", "version": "1.1.0",
-               "update_url": "http://x/pkg.zip", "update_sha256": "abc123"},
-               follow_redirects=True)
-    assert r.status_code == 200
+    # NOTE: the /updates admin PAGE was intentionally removed (commit f3b6d4f) —
+    # updates now flow via the CSP_Setup/UPDATE .bat + GitHub path, and /sync's
+    # publish side is seeded server-side rather than through a UI. This test
+    # therefore validates the STILL-LIVE /sync contract that the CSP self-updater
+    # depends on, driving it directly instead of through the deleted page.
+    with adb.get_connection() as conn:
+        for k, v in (("latest_version", "1.1.0"),
+                     ("update_url", "http://x/pkg.zip"),
+                     ("update_sha256", "abc123")):
+            conn.execute("INSERT INTO server_config (key, value) VALUES (?,?) "
+                         "ON CONFLICT(key) DO UPDATE SET value=excluded.value", (k, v))
+        conn.commit()
 
     # a CSP sync now sees the published version + package
     s = c.get("/api/v1/sync?csp_id=CSP001", headers={"X-API-Key": api_key})
@@ -142,8 +149,9 @@ def test_admin_publish_and_sync_flow(tmpdir, monkeypatch):
     c.post("/api/v1/report", json={"csp_id": "CSP001", "name": "Dudahi CSP"},
            headers={"X-API-Key": api_key})
 
-    # push "update now" to all -> next sync delivers the command once
-    c.post("/updates", data={"action": "push", "target": "__all__"}, follow_redirects=True)
+    # queue "update now" for the CSP -> next sync delivers the command exactly once
+    from admin_dashboard.api import queue_command
+    queue_command("CSP001", "update_software")
     s2 = c.get("/api/v1/sync?csp_id=CSP001", headers={"X-API-Key": api_key}).get_json()
     assert any(cmd["command"] == "update_software" for cmd in s2["commands"])
     s3 = c.get("/api/v1/sync?csp_id=CSP001", headers={"X-API-Key": api_key}).get_json()
