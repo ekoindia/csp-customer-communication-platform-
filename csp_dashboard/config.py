@@ -150,6 +150,18 @@ SERVER_OCR_QUEUE_WAIT_SEC = int(os.environ.get("SERVER_OCR_QUEUE_WAIT_SEC", "20"
 # local OCR. Kept small — the local fallback is always there.
 SERVER_OCR_RETRIES = int(os.environ.get("SERVER_OCR_RETRIES", "2"))
 
+# ── OnnxTR "heavy" arches — the accurate engine for the CENTRALIZED SERVER ────
+# The server (Dell PowerEdge R730: 40 vCPU, 125 GiB RAM, NO GPU) has compute to
+# spare, so it runs docTR's accuracy-leading arches instead of the small bundled
+# ones the 4 GB CSP box uses. Weights are fetched by OnnxTR on first use and
+# cached on disk — a MODEL download, never customer data, so DPDP is unaffected.
+# The centralized OCR path forces this on automatically; the 4 GB box keeps the
+# small bundled models (OCR_ONNXTR_HEAVY stays 0 there). VLM-class OCR is NOT
+# used: no GPU, so it would be minutes per page.
+OCR_ONNXTR_HEAVY = os.environ.get("OCR_ONNXTR_HEAVY", "0") == "1"
+ONNXTR_DET_ARCH = os.environ.get("ONNXTR_DET_ARCH", "db_resnet50")    # detection
+ONNXTR_RECO_ARCH = os.environ.get("ONNXTR_RECO_ARCH", "parseq")       # recognition
+
 # ── Minimum hardware the platform supports (the "hardware constraint") ───────
 # Single source of truth, used by the install-time gate (INSTALL.bat) and the
 # deploy preflight (deploy_check.py). The CONFIRMED deploy PC — Dell Inspiron
