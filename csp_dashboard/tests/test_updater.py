@@ -41,6 +41,7 @@ def _fake_app(tmpdir):
     app = tmpdir.mkdir("app")
     app.join("VERSION").write("1.0.0\n")
     app.join("config.py").write("CSP_NAME = 'Dudahi CSP'  # local, must survive\n")
+    app.join(".env").write("ADMIN_CSP_ID=demo\nADMIN_API_KEY=real-secret\nSERVER_OCR_ENABLED=1\n")
     app.join("newfeature.py").ensure(file=False)  # absent before update
     app.mkdir("database").join("csp_platform.db").write("LOCAL-CUSTOMER-DATA")
     wa = app.mkdir("whatsapp"); wa.mkdir(".wa_session").join("creds.json").write("LOGGED-IN")
@@ -76,8 +77,10 @@ def test_stage_and_apply_preserves_data(tmpdir, monkeypatch, top_folder):
     assert os.path.isfile(os.path.join(str(app), "newfeature.py"))
     assert open(os.path.join(str(app), "VERSION")).read().strip() == "1.1.0"
     assert "bridge 1.1.0" in open(os.path.join(str(app), "whatsapp", "wa_server.js")).read()
-    # PRESERVED: config.py, local DB, WhatsApp session untouched
+    # PRESERVED: config.py, .env (CSP identity + key), local DB, WhatsApp session
     assert "Dudahi CSP" in open(os.path.join(str(app), "config.py")).read()
+    env_after = open(os.path.join(str(app), ".env")).read()
+    assert "ADMIN_API_KEY=real-secret" in env_after and "SERVER_OCR_ENABLED=1" in env_after
     assert open(os.path.join(str(app), "database", "csp_platform.db")).read() == "LOCAL-CUSTOMER-DATA"
     assert open(os.path.join(str(app), "whatsapp", ".wa_session", "creds.json")).read() == "LOGGED-IN"
     # pending cleared -> no re-apply loop

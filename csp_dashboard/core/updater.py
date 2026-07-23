@@ -47,6 +47,10 @@ _KEEP_BACKUPS = 2
 # Top-level paths an update must NEVER overwrite (the CSP's own data/config).
 _PRESERVE = {
     "config.py",              # CSP name / phone / API keys / settings
+    ".env",                   # CSP connection config (ADMIN_CSP_ID / API key /
+                              # ADMIN_API_BASE / SERVER_OCR_ENABLED) — MUST survive
+                              # an update, else the install loses its identity and
+                              # its link to the admin portal + centralized OCR.
     "database",               # local SQLite (all customer data)
     "uploads",                # transient upload scratch
     "update",                 # this updater's own working dir

@@ -175,6 +175,7 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
         raise ValueError("unsupported OCR file_type")
 
     import gc
+    import config
     import pypdfium2 as pdfium
     from core.ocr_table import extract_rows_from_pil
 
