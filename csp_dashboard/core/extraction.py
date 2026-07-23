@@ -323,7 +323,11 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
             return None
         if progress:
             progress(0, 1000, "Sending scan to Eko OCR service...")
-        result = server_ocr_client.extract_file(path, file_type, page_from, page_to)
+        # extract_file sends the scan ONE PAGE PER REQUEST and drives `progress`
+        # per page, so the CSP sees a real "page N of M" bar instead of one long
+        # silent wait — and no single request can time out.
+        result = server_ocr_client.extract_file(path, file_type, page_from,
+                                                 page_to, progress=progress)
         from core.ocr_excel import xlsx_bytes_to_rows
         rows = xlsx_bytes_to_rows(result.get("xlsx_bytes") or b"")
         if not rows:

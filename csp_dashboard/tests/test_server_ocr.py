@@ -212,7 +212,7 @@ def test_extraction_uses_server_ocr_before_local_image_ocr(tmp_path, monkeypatch
 
     from core.ocr_excel import rows_to_xlsx_bytes
 
-    def fake_extract_file(path, file_type, page_from=None, page_to=None):
+    def fake_extract_file(path, file_type, page_from=None, page_to=None, progress=None):
         assert path == str(upload)
         assert file_type == "image"
         return {
@@ -238,6 +238,45 @@ def test_extraction_uses_server_ocr_before_local_image_ocr(tmp_path, monkeypatch
     # Centralized OCR writes NOTHING to the CSP disk — table-only review.
     assert images == []
     assert not (ddir / "page_000.png").exists()
+
+
+def test_pdf_is_sent_one_page_per_request_and_combined(tmp_path, monkeypatch):
+    """A multi-page PDF must be sent ONE PAGE PER REQUEST (so no single request
+    times out) and the per-page rows combined into one result."""
+    import io as _io
+    from PIL import Image
+    import config
+    from core import server_ocr_client
+    from core.ocr_excel import xlsx_bytes_to_rows
+
+    # a real 3-page PDF
+    img = Image.new("RGB", (200, 120), "white")
+    buf = _io.BytesIO()
+    img.save(buf, "PDF", save_all=True, append_images=[img, img])
+    pdf = tmp_path / "scan.pdf"
+    pdf.write_bytes(buf.getvalue())
+
+    monkeypatch.setattr(config, "SERVER_OCR_ENABLED", True)
+    monkeypatch.setattr(config, "ADMIN_API_BASE", "https://eko.example/api/v1")
+    monkeypatch.setattr(config, "ADMIN_CSP_ID", "CSP777")
+    monkeypatch.setattr(config, "ADMIN_API_KEY", "real-secret-key")
+
+    calls = {"n": 0}
+
+    def fake_send_image(img_bytes, timeout, retries):
+        calls["n"] += 1
+        return [{"name": f"ROW{calls['n']}"}]      # one row per page
+
+    monkeypatch.setattr(server_ocr_client, "_send_image", fake_send_image)
+    seen = []
+    result = server_ocr_client.extract_file(
+        str(pdf), "pdf", progress=lambda d, t, m: seen.append(m))
+
+    assert calls["n"] == 3                          # one request PER PAGE
+    assert result["page_count"] == 3
+    rows = xlsx_bytes_to_rows(result["xlsx_bytes"])
+    assert [r["name"] for r in rows] == ["ROW1", "ROW2", "ROW3"]   # combined, in order
+    assert any("page 3 of 3" in m for m in seen)    # per-page progress fired
 
 
 def test_ocr_excel_roundtrip_is_lossless_including_leading_zeros():
