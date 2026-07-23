@@ -432,39 +432,51 @@ def _onnxtr_model():
             from onnxtr.models import ocr_predictor
 
             if bool(getattr(config, "OCR_ONNXTR_HEAVY", False)):
-                # CENTRALIZED SERVER (CPU, 128 GB, no GPU): accuracy-leading
-                # arches (default db_resnet50 + parseq). OnnxTR fetches the ONNX
-                # weights on first use and caches them on disk — a model
-                # download, never customer data. Threads default to all cores
-                # (compute is free on the server), so no thread cap here.
+                # OPT-IN heavy arches (default db_resnet50 + parseq): more
+                # accurate, but OnnxTR fetches their ONNX weights on first use.
+                # If that download fails (e.g. a server with no outbound access
+                # to the model host), fall back to the bundled models below —
+                # never return None just because a download didn't work.
                 det_arch = str(getattr(config, "ONNXTR_DET_ARCH", "db_resnet50"))
                 reco_arch = str(getattr(config, "ONNXTR_RECO_ARCH", "parseq"))
-                _ONNXTR_MODEL = ocr_predictor(det_arch=det_arch, reco_arch=reco_arch,
-                                              assume_straight_pages=True)
-                print(f"[ocr] OnnxTR heavy arches: det={det_arch} reco={reco_arch}")
+                try:
+                    _ONNXTR_MODEL = ocr_predictor(det_arch=det_arch, reco_arch=reco_arch,
+                                                  assume_straight_pages=True)
+                    print(f"[ocr] OnnxTR heavy arches: det={det_arch} reco={reco_arch}")
+                except Exception as he:
+                    print(f"[ocr] heavy arches unavailable ({he}); "
+                          f"falling back to bundled models")
+                    _ONNXTR_MODEL = _build_bundled_onnxtr(ocr_predictor)
             else:
-                # 4 GB CSP box: the small BUNDLED models (no network, tight RAM).
-                import onnxruntime as ort
-                from onnxtr.models.detection import db_mobilenet_v3_large
-                from onnxtr.models.recognition import crnn_vgg16_bn
-                from onnxtr.models.engine import EngineConfig
-                det_path, reco_path = _onnxtr_paths()
-                so = ort.SessionOptions()
-                so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 4))
-                so.inter_op_num_threads = 1
-                cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
-                det = db_mobilenet_v3_large(model_path=det_path, engine_cfg=cfg)
-                reco = crnn_vgg16_bn(model_path=reco_path, engine_cfg=cfg)
-                # Small recognition batch keeps peak RAM ~640 MB on the 4 GB box
-                # (default 128 would spike to ~1.7 GB). det_bs=1: one page at a time.
-                reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
-                _ONNXTR_MODEL = ocr_predictor(det_arch=det, reco_arch=reco,
-                                              assume_straight_pages=True,
-                                              reco_bs=reco_bs, det_bs=1)
+                # Default (CSP box AND server): the small BUNDLED models — no
+                # network, offline, proven on the real scans.
+                _ONNXTR_MODEL = _build_bundled_onnxtr(ocr_predictor)
         except Exception as e:
             print(f"[ocr] OnnxTR unavailable ({e}); will use Tesseract")
             _ONNXTR_MODEL = None
     return _ONNXTR_MODEL
+
+
+def _build_bundled_onnxtr(ocr_predictor):
+    """Build the OnnxTR predictor from the small BUNDLED ONNX files (no network).
+    Used as the default and as the fallback when heavy weights can't download."""
+    import config
+    import onnxruntime as ort
+    from onnxtr.models.detection import db_mobilenet_v3_large
+    from onnxtr.models.recognition import crnn_vgg16_bn
+    from onnxtr.models.engine import EngineConfig
+    det_path, reco_path = _onnxtr_paths()
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 4))
+    so.inter_op_num_threads = 1
+    cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
+    det = db_mobilenet_v3_large(model_path=det_path, engine_cfg=cfg)
+    reco = crnn_vgg16_bn(model_path=reco_path, engine_cfg=cfg)
+    # Small recognition batch keeps peak RAM ~640 MB on the 4 GB box
+    # (default 128 would spike to ~1.7 GB). det_bs=1: one page at a time.
+    reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
+    return ocr_predictor(det_arch=det, reco_arch=reco, assume_straight_pages=True,
+                         reco_bs=reco_bs, det_bs=1)
 
 
 def release_onnxtr_model():

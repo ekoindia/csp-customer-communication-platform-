@@ -140,11 +140,14 @@ def _extract_ocr_rows(file_bytes: bytes, file_type: str, page_from=None,
     ocr_table._ENGINE_OVERRIDE = engine
     ocr_table._STRICT_ENGINE = True
     config.OCR_ENGINE = engine
-    # On the server, onnxtr means the ACCURATE heavy arches (db_resnet50 +
-    # parseq) — the box has the compute and no GPU, so this is the best CPU
-    # option. The 4 GB CSP box never runs this path.
-    if engine == "onnxtr":
-        config.OCR_ONNXTR_HEAVY = True
+    # Engine default on the server is the BUNDLED onnxtr models (db_mobilenet +
+    # crnn_mobilenet): committed in the repo, so they need NO runtime download
+    # and work offline — proven on the real SBI scans (account 100 / name 99 /
+    # band 95 / mobile 85 %). The heavier arches (db_resnet50 + parseq) are
+    # opt-in via OCR_ONNXTR_HEAVY=1, because they fetch weights on first use and
+    # a server without outbound access to the model host would otherwise get
+    # zero rows. When heavy IS enabled, _onnxtr_model falls back to the bundled
+    # models if the download fails, so OCR never silently returns nothing.
     try:
         return _extract_ocr_rows_with_engine(file_bytes, file_type, page_from, page_to)
     finally:
