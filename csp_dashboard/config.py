@@ -97,8 +97,12 @@ OCR_RAM_THRESHOLD_GB = 6
 # OOMing. Checked per page at OCR time.
 DOCTR_MIN_FREE_RAM_GB = 2.5
 
-# Cap OCR CPU threads so a 2-core/4-thread i3 isn't oversubscribed.
-TORCH_MAX_THREADS = 4
+# Cap OCR CPU threads so a 2-core/4-thread i3 isn't oversubscribed. On the 4 GB
+# CSP box this stays 4. The centralized OCR SERVER (40 vCPU) overrides this via
+# the TORCH_MAX_THREADS env (set in deploy/restart_admin.sh) so onnxruntime uses
+# many cores per page instead of 4 — the difference between ~34 s/page and a few
+# seconds on the shared box.
+TORCH_MAX_THREADS = int(os.environ.get("TORCH_MAX_THREADS", "4"))
 
 # docTR recognition backbone.
 #   "auto"          = "parseq" on a GPU (accurate, practical only with CUDA),
