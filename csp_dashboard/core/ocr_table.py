@@ -858,7 +858,17 @@ def extract_with_image(pil_img: Image.Image, angle: int = None, on_row=None):
     page is read, so the UI can show a REAL (per-row) progress bar."""
     gray = pil_img.convert("L")
     if angle is None:
-        angle = _detect_angle_deep(gray) if _STRICT_ENGINE else detect_angle(gray)
+        # Orientation is best-effort and must NEVER hard-fail. detect_angle uses
+        # Tesseract; on a box where Tesseract isn't installed that raises. Fall
+        # back to the deep-engine probe (no Tesseract), and if even that can't
+        # run, assume the page is upright rather than crashing the whole read.
+        try:
+            angle = _detect_angle_deep(gray) if _STRICT_ENGINE else detect_angle(gray)
+        except Exception:
+            try:
+                angle = _detect_angle_deep(gray)
+            except Exception:
+                angle = 0
     gray = gray.rotate(-angle, expand=True)
     rows = _extract_from_oriented(gray, on_row=on_row)
     return gray, rows, angle
