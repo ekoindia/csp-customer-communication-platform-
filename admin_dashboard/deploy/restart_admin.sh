@@ -13,6 +13,11 @@ PORT="${ADMIN_BIND_PORT:-7000}"
 PY=".venv_linux/bin/python"
 [ -x "$PY" ] || PY="python3"
 
+# Centralized OCR runs in this process. The box has 40 vCPU, so let onnxruntime
+# use many cores per page (config.TORCH_MAX_THREADS reads this) instead of the
+# 4-thread cap meant for a CSP's 4-core PC — turns ~34 s/page into a few seconds.
+export TORCH_MAX_THREADS="${TORCH_MAX_THREADS:-16}"
+
 echo "Freeing port $PORT ..."
 if command -v lsof >/dev/null 2>&1; then
     lsof -ti:"$PORT" | xargs -r kill 2>/dev/null || true
