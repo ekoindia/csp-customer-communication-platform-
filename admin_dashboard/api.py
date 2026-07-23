@@ -140,6 +140,11 @@ def _extract_ocr_rows(file_bytes: bytes, file_type: str, page_from=None,
     ocr_table._ENGINE_OVERRIDE = engine
     ocr_table._STRICT_ENGINE = True
     config.OCR_ENGINE = engine
+    # On the server, onnxtr means the ACCURATE heavy arches (db_resnet50 +
+    # parseq) — the box has the compute and no GPU, so this is the best CPU
+    # option. The 4 GB CSP box never runs this path.
+    if engine == "onnxtr":
+        config.OCR_ONNXTR_HEAVY = True
     try:
         return _extract_ocr_rows_with_engine(file_bytes, file_type, page_from, page_to)
     finally:
@@ -168,7 +173,7 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
 
     import gc
     import pypdfium2 as pdfium
-    from core.ocr_table import extract_rows_from_pil, release_doctr_model, release_onnxtr_model
+    from core.ocr_table import extract_rows_from_pil
 
     rows = []
     pdf = pdfium.PdfDocument(file_bytes)
@@ -200,8 +205,11 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
         return rows, hi - lo + 1
     finally:
         pdf.close()
-        release_doctr_model()
-        release_onnxtr_model()
+        # NB: we deliberately do NOT release the OCR model here. On the 128 GB
+        # server the model stays resident between requests (the heavy arches
+        # cost ~15 s to load), which is the right trade — unlike the 4 GB CSP
+        # box, which frees it after each batch. Per-request page buffers are
+        # freed above; the model is process-lifetime.
 
 
 @api_bp.route("/api/v1", methods=["GET"])
