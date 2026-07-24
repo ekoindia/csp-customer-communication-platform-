@@ -6,7 +6,12 @@ class CustomerRow(BaseModel):
     account_number: str
     name: str
     mobile: str = ""        # optional: blank/invalid -> "" = "not reachable"
-    balance_band: str
+    # Optional: some CSP bank lists have NO balance-band column at all (e.g. the
+    # Khusrupur format: A/C No | A/C Name | Address | Mobile | INOPERATIVE).
+    # A blank band is kept (classifier maps it to the safe normal/template_1
+    # default) instead of failing the whole row — the message never contains the
+    # balance anyway (DPDP §9), so a missing band only affects tone/category.
+    balance_band: str = ""
     father_name: Optional[str] = None
     village: Optional[str] = None
     taluka: Optional[str] = None

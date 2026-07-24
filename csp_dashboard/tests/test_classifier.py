@@ -59,5 +59,19 @@ def test_band_string_is_whitespace_tolerant():
 
 
 def test_unrecognised_band_raises():
+    # A NON-EMPTY but garbled band on a band-carrying list is still surfaced as
+    # an error (commit_draft flags it, the direct processor drops it) — only a
+    # fully EMPTY band (bandless list) defaults, see test_missing_band_defaults.
     with pytest.raises(ValueError):
         classify("not-a-band")
+
+
+def test_missing_band_defaults():
+    # Some CSP lists (e.g. the Khusrupur format) have NO balance-band column.
+    # An empty band must classify to the safe default, not crash or flag.
+    for empty in ("", "   ", None):
+        c = classify(empty)
+        assert c["band"] == "NA"
+        assert c["tone"] == "normal"
+        assert c["template_id"] == "template_1"
+        assert c["is_sensitive"] is False
