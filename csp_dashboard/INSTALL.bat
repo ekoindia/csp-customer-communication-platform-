@@ -108,11 +108,9 @@ echo [OK] OCR runs on the Eko server - nothing to install locally.
 
 REM ---------- 3. Node.js LTS (WhatsApp sending) ----------
 where node >nul 2>&1 && goto node_done
-echo Installing Node.js LTS ...
-where winget >nul 2>&1 && winget install -e --id OpenJS.NodeJS.LTS --silent --accept-package-agreements --accept-source-agreements
-set "PATH=!PATH!;%ProgramFiles%\nodejs"
+call :ensure_node
 :node_done
-echo [OK] Node.js step done.
+where node >nul 2>&1 && (echo [OK] Node.js ready.) || (echo [!] Node.js not set up - WhatsApp sending can be enabled later; the dashboard still runs without it.)
 
 REM ---------- 4. App environment + Python dependencies ----------
 if not exist ".venv\Scripts\python.exe" (
@@ -165,6 +163,9 @@ if not exist ".env" (
             echo ADMIN_CSP_ID=!CSPID!
             echo ADMIN_API_KEY=!APIKEY!
             echo ADMIN_REPORT_ENABLED=1
+            REM OCR runs on the Eko server (no local OCR engine ships) - required
+            REM or scanned uploads extract 0 rows.
+            echo SERVER_OCR_ENABLED=1
         ) > ".env"
         echo   Saved - this install will report to Eko's admin portal.
     ) else (
@@ -230,11 +231,43 @@ for %%V in (3.11 3.12 3.10) do (
 )
 REM    (no launcher) accept a bare `python` only if it is itself 3.10-3.12.
 python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && ( set "PY=python" & goto :eof )
-REM 2) Nothing usable — install 3.11 (user scope = no admin needed).
-echo Installing Python 3.11 ...
-where winget >nul 2>&1 && winget install -e --id Python.Python.3.11 --silent --scope user --accept-package-agreements --accept-source-agreements
-REM 3) Re-detect after install: py launcher first, then the known install dirs.
+REM 2) Nothing usable — install Python 3.11. We DON'T use winget: its package
+REM    servers (delivery-optimization CDN) are frequently blocked/slow on CSP
+REM    networks and winget then HANGS with no download (seen live on a deploy PC).
+REM    Instead we fetch the official python.org installer directly over plain
+REM    HTTPS — the exact path that reliably pulled the app package — and install
+REM    it silently. All-users (we're elevated) so the `py` launcher is global.
+echo Downloading Python 3.11 from python.org ...
+powershell -NoProfile -Command ^
+  "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-amd64.exe' -OutFile '%TEMP%\python311-setup.exe' -UseBasicParsing }catch{ Write-Host $_.Exception.Message; exit 1 }"
+if exist "%TEMP%\python311-setup.exe" (
+    echo Installing Python 3.11 ^(silent^) ...
+    "%TEMP%\python311-setup.exe" /quiet InstallAllUsers=1 PrependPath=1 Include_launcher=1 Include_pip=1
+    del /q "%TEMP%\python311-setup.exe" >nul 2>&1
+)
+call :detect_python
+goto :eof
+
+REM ------------------------------------------------------------
+:detect_python
+REM Resolve a real python.exe path (never "py -3.11"): py launcher first, then
+REM the known all-users/per-user install dirs, then a bare `python` if it is 3.10-3.12.
 for /f "delims=" %%P in ('py -3.11 -c "import sys;print(sys.executable)" 2^>nul') do set "PY=%%P"
-if not defined PY for %%D in ("%LOCALAPPDATA%\Programs\Python\Python311" "%ProgramFiles%\Python311" "%LOCALAPPDATA%\Programs\Python\Python312" "%ProgramFiles%\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
+if not defined PY for %%D in ("%ProgramFiles%\Python311" "%LOCALAPPDATA%\Programs\Python\Python311" "%ProgramFiles%\Python312" "%LOCALAPPDATA%\Programs\Python\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
 if not defined PY ( python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && set "PY=python" )
+goto :eof
+
+REM ------------------------------------------------------------
+:ensure_node
+REM Same story as Python: winget's servers hang on CSP networks, so pull the
+REM official Node.js LTS MSI directly over HTTPS and install it silently.
+echo Downloading Node.js LTS from nodejs.org ...
+powershell -NoProfile -Command ^
+  "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -Uri 'https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi' -OutFile '%TEMP%\node-lts.msi' -UseBasicParsing }catch{ Write-Host $_.Exception.Message; exit 1 }"
+if exist "%TEMP%\node-lts.msi" (
+    echo Installing Node.js LTS ^(silent^) ...
+    msiexec /i "%TEMP%\node-lts.msi" /quiet /norestart
+    set "PATH=%PATH%;%ProgramFiles%\nodejs"
+    del /q "%TEMP%\node-lts.msi" >nul 2>&1
+)
 goto :eof

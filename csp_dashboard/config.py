@@ -129,13 +129,18 @@ OCR_LOW_RAM_DPI = 260   # printed tables read better at 260 than 220; still fits
 OCR_HIGH_RAM_DPI = 300
 
 # Centralized OCR (Eko RAG/admin server, Tier 1).
-# Disabled by default until the DPA/go-live switch is ready. When enabled, the
-# CSP sends scanned PDFs/images to {ADMIN_API_BASE}/ocr/extract using the same
-# per-CSP API key, with an AES-GCM app-layer envelope. The server runs OCR fully
-# in RAM and returns an encrypted .xlsx (never rows in the clear, never a file on
-# disk on either side); the CSP parses that .xlsx in memory into the SAME review
-# gate as a bank Excel upload. Cases/messages always remain local.
-SERVER_OCR_ENABLED = os.environ.get("SERVER_OCR_ENABLED", "0") == "1"
+# ON by default: CSP installs ship NO local OCR engine (server-OCR client), so
+# scanned OCR MUST go to the server — otherwise a scanned upload silently
+# extracts 0 rows. The CSP sends scanned PDFs/images to {ADMIN_API_BASE}/ocr/
+# extract using the same per-CSP API key, with an AES-GCM app-layer envelope.
+# The server runs OCR fully in RAM and returns an encrypted .xlsx (never rows in
+# the clear, never a file on disk on either side); the CSP parses that .xlsx in
+# memory into the SAME review gate as a bank Excel upload. Cases/messages always
+# remain local. NOTE: this only actually activates when a real per-CSP API key
+# is configured — core.server_ocr_client.enabled() also requires ADMIN_API_BASE
+# + ADMIN_CSP_ID + a non-demo ADMIN_API_KEY — so tests/dev without a key stay on
+# the local path. Set SERVER_OCR_ENABLED=0 to force local OCR on an on-prem box.
+SERVER_OCR_ENABLED = os.environ.get("SERVER_OCR_ENABLED", "1") == "1"
 # Default engine = onnxtr: the ONLY engine with MEASURED accuracy on the real
 # SBI scans (account 100% / name 99% / band 95% / mobile 85% across a 29-page
 # scan). rapidocr (PP-OCR on ONNX) is kept as a selectable challenger but must
