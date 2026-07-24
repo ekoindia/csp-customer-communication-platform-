@@ -3,7 +3,10 @@ pydantic==2.7.4
 openpyxl==3.1.2
 pdfplumber==0.11.1
 pillow==10.3.0
-pytesseract==0.3.10
+# Tesseract (pytesseract) is NO LONGER a dependency — the scanned-OCR engine is
+# docTR/OnnxTR (deep learning). The code still opportunistically uses pytesseract
+# for a few cheap helpers if it happens to be installed, but degrades to the deep
+# engine when absent, so it is intentionally not pinned here.
 requests==2.32.3
 pytest==8.2.2
 # Loads local secrets/config from a .env file (never committed — see

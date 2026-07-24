@@ -79,8 +79,8 @@ try:
 except Exception as e:
     add("WARN", "Disk free", str(e))
 
-# 5. Required Python packages (lite profile - no torch/doctr needed)
-deps = ["flask", "pydantic", "openpyxl", "pdfplumber", "PIL", "pytesseract",
+# 5. Required Python packages (lite profile - no torch/doctr/tesseract needed)
+deps = ["flask", "pydantic", "openpyxl", "pdfplumber", "PIL",
         "requests", "pypdfium2", "numpy", "cv2"]
 missing = [d for d in deps if importlib.util.find_spec(d) is None]
 add("PASS" if not missing else "FAIL", "Python packages",
@@ -89,22 +89,25 @@ add("PASS" if importlib.util.find_spec("psutil") else "WARN", "psutil",
     "present" if importlib.util.find_spec("psutil") else
     "absent - using ctypes RAM fallback (fine)")
 
-# 6. Tesseract engine (the OCR the deploy PC actually uses)
-tess_ok = False
+# 6. OnnxTR engine (the deep-learning OCR the deploy PC actually uses; no
+#    Tesseract, no PyTorch — models are bundled in core/models/).
+ocr_ok = False
 try:
-    import core.ocr  # noqa: F401  (sets pytesseract path)
-    import pytesseract
-    add("PASS", "Tesseract OCR engine", f"v{pytesseract.get_tesseract_version()}")
-    tess_ok = True
-except Exception:
-    add("WARN", "Tesseract OCR engine",
-        "not found - only needed for SCANNED PDF/image OCR; Excel/CSV uploads "
-        "work without it. Install Tesseract-OCR to enable scan reading.")
+    import core.ocr_table as _ot
+    if _ot.onnxtr_available():
+        add("PASS", "OnnxTR OCR engine", "bundled models present (no PyTorch)")
+        ocr_ok = True
+    else:
+        add("WARN", "OnnxTR OCR engine",
+            "onnxtr/models not found - only needed for SCANNED PDF/image OCR; "
+            "Excel/CSV uploads work without it. pip install onnxtr onnxruntime.")
+except Exception as e:
+    add("WARN", "OnnxTR OCR engine", f"unavailable ({e}) - scans only")
 
-# 7. End-to-end OCR smoke test (only meaningful if Tesseract/docTR is present;
+# 7. End-to-end OCR smoke test (only meaningful if the OCR engine is present;
 #    scanned-doc OCR is optional — CSV/Excel is the main, OCR-free path).
-if not tess_ok:
-    add("WARN", "OCR smoke test", "skipped - Tesseract not installed (scans only)")
+if not ocr_ok:
+    add("WARN", "OCR smoke test", "skipped - OnnxTR not installed (scans only)")
 else:
     try:
         import numpy as np
