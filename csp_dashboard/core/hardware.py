@@ -7,10 +7,11 @@ detects the machine it is actually running on and picks safe defaults so the
 software never has to be hand-tuned per install (and never OOMs a small box):
 
   • OCR engine   — docTR (deep learning, ~1 GB resident) needs headroom. On a
-                   machine below OCR_RAM_THRESHOLD_GB we fall back to a
-                   Tesseract-only word reader (~150 MB, no PyTorch) that feeds
-                   the SAME accurate grid logic. The review gate + digit
-                   cross-check still catch misreads.
+                   machine below OCR_RAM_THRESHOLD_GB we fall back to OnnxTR
+                   (docTR models on ONNX Runtime, ~700 MB, NO PyTorch) that
+                   feeds the SAME accurate grid logic. Tesseract is no longer a
+                   dependency. The review gate + digit cross-check still catch
+                   misreads.
   • docTR model  — the accurate "parseq" backbone is practical only on a GPU;
                    on CPU we use the lighter, much faster "crnn_vgg16_bn".
   • Torch threads— capped so a 2-core/4-thread i3 isn't oversubscribed.
@@ -120,15 +121,17 @@ def resolve_ocr_engine() -> str:
     # never OOMs on PyTorch.
     if total_ram_gb() >= threshold and available_ram_gb() >= min_free:
         return "doctr"
-    # Low-RAM / CPU box: prefer the accurate ONNX Runtime engine (fits 4 GB, no
-    # PyTorch) when its models are bundled; fall back to Tesseract otherwise.
+    # Low-RAM / CPU box: the accurate ONNX Runtime engine (fits 4 GB, no
+    # PyTorch) whose models are bundled with the app. Tesseract is no longer a
+    # dependency, so ONNXTR is the default here even if the availability probe
+    # hiccups — the deep engine is what the platform actually ships and runs.
     try:
         from core import ocr_table
         if ocr_table.onnxtr_available():
             return "onnxtr"
     except Exception:
         pass
-    return "tesseract"
+    return "onnxtr"
 
 
 def render_dpi() -> int:
@@ -188,16 +191,17 @@ def install_plan(whatsapp_local_bridge: bool = True) -> dict:
     """Stage-1 installer brain: probe this machine and return WHAT to install,
     so a weak PC never downloads the heavy ML stack it can't run.
 
-    Rule: below OCR_RAM_THRESHOLD_GB -> "lite" (Tesseract-only, PyTorch + docTR
-    SKIPPED, ~2 GB saved, no OOM). At/above -> docTR added (GPU build + accurate
-    "parseq" if an NVIDIA GPU is seen, else CPU build + light "crnn_vgg16_bn").
-    `whatsapp_local_bridge` adds Node only if the local Baileys bridge is used;
-    with the official WABA HTTP API it stays pure-Python (no Node)."""
+    Rule: below OCR_RAM_THRESHOLD_GB -> "lite" (OnnxTR deep OCR on ONNX Runtime,
+    ~700 MB bundled models, PyTorch + docTR SKIPPED, ~2 GB saved, no OOM).
+    At/above -> docTR added (GPU build + accurate "parseq" if an NVIDIA GPU is
+    seen, else CPU build + light "crnn_vgg16_bn"). Tesseract is no longer part
+    of any profile. `whatsapp_local_bridge` adds Node only if the local Baileys
+    bridge is used; with the official WABA HTTP API it stays pure-Python."""
     p = profile()
     ram = p["ram_gb"]
     threshold = getattr(config, "OCR_RAM_THRESHOLD_GB", 6)
     base = ["python-runtime", "flask-web", "numpy", "opencv-headless",
-            "pypdfium2", "pytesseract", "pillow", "psutil", "tesseract-ocr-binary"]
+            "pypdfium2", "pillow", "psutil"]
     plan = {
         "ram_gb": ram, "available_gb": p["available_gb"],
         "cpu_threads": p["cpu_threads"], "gpu": has_nvidia_gpu(),
@@ -216,10 +220,12 @@ def install_plan(whatsapp_local_bridge: bool = True) -> dict:
             f"({'GPU/parseq' if gpu else 'CPU/crnn_vgg16_bn'}).")
     else:
         plan["profile"] = "lite"
+        plan["install"] += ["onnxtr", "onnxruntime", "onnxtr-models:bundled"]
         plan["skip"] += ["torch", "torchvision", "python-doctr", "doctr-models"]
         plan["notes"].append(
-            f"RAM {ram} GB < {threshold} GB -> LITE: Tesseract-only OCR; "
-            f"PyTorch + docTR skipped (~2 GB saved, no OOM risk).")
+            f"RAM {ram} GB < {threshold} GB -> LITE: OnnxTR deep OCR on ONNX "
+            f"Runtime (~700 MB bundled models); PyTorch + docTR skipped "
+            f"(~2 GB saved, no OOM risk).")
     if whatsapp_local_bridge:
         plan["install"] += ["nodejs-runtime", "whatsapp-baileys-bridge"]
         plan["notes"].append(
@@ -232,8 +238,8 @@ def install_plan(whatsapp_local_bridge: bool = True) -> dict:
 
 def summary_line() -> str:
     p = profile()
-    mode = ("Tesseract-only (low-RAM, no PyTorch)"
-            if p["ocr_engine"] == "tesseract" else p["ocr_engine"])
+    mode = ("OnnxTR (low-RAM deep OCR, no PyTorch)"
+            if p["ocr_engine"] == "onnxtr" else p["ocr_engine"])
     return (f"Hardware profile: {p['ram_gb']} GB RAM ({p['available_gb']} GB "
             f"free), {p['cpu_threads']} CPU threads -> OCR engine: {mode}; "
             f"torch threads capped at {p['torch_threads']}.")

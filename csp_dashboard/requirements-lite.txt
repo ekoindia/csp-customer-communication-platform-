@@ -1,27 +1,28 @@
 # ── LITE install profile — for the real 4 GB deploy PC (Dell Inspiron 3268) ──
 #
-# This machine (4 GB RAM, i3-7100, no GPU) runs in Tesseract-only OCR mode
-# (core/hardware.py auto-selects it below OCR_RAM_THRESHOLD_GB), so PyTorch +
-# docTR are NEVER loaded there. Installing them would waste ~2 GB of the ~52 GB
-# free disk and add a heavy, slow install for zero benefit. So this profile
+# This machine (4 GB RAM, i3-7100, no GPU) runs OnnxTR OCR (docTR models on ONNX
+# Runtime, NO PyTorch) — core/hardware.py auto-selects it below
+# OCR_RAM_THRESHOLD_GB. PyTorch + docTR are NEVER loaded there. Installing them
+# would waste ~2 GB of the ~52 GB free disk for zero benefit, so this profile
 # deliberately OMITS `python-doctr` and does NOT install torch/torchvision.
 #
 #   pip install -r requirements-lite.txt
 #
-# The scanned-document path still works (grid detection via OpenCV + Tesseract
-# word reading). CSV/Excel/typed-PDF need no OCR at all. If this box is ever
-# upgraded to >= 6 GB RAM and you want docTR accuracy, install the full
+# The scanned-document path works via OnnxTR (grid detection + deep word
+# reading, no Tesseract). CSV/Excel/typed-PDF need no OCR at all. If this box is
+# ever upgraded to >= 6 GB RAM and you want docTR accuracy, install the full
 # requirements.txt instead (adds python-doctr + CPU torch) — no code change.
 #
-# Tesseract-OCR itself is a separate Windows install (core/ocr.py looks for it
-# at C:\Program Files\Tesseract-OCR\tesseract.exe).
+# Tesseract is NOT a dependency anymore. The code still uses pytesseract for a
+# couple of cheap helpers IF the binding happens to be installed, but every
+# call site degrades to the OnnxTR deep engine when it is absent — so nothing
+# here installs it.
 
 flask==3.0.3
 pydantic==2.7.4
 openpyxl==3.1.2
 pdfplumber==0.11.1
 pillow==10.3.0
-pytesseract==0.3.10
 requests==2.32.3
 # (pytest is NOT a runtime dependency — it lives in requirements-dev.txt so the
 #  slow 4 GB deploy box doesn't download/install it. Developers: pip install -r
@@ -39,8 +40,8 @@ opencv-contrib-python-headless==4.10.0.84
 psutil==5.9.8
 # Runtime for the custom on-device digit OCR model (core/ocr_onnx.py). CPU-only,
 # ~15-50 MB, numpy-2 compatible — NOT PyTorch. Lets the trained crnn.onnx read
-# account/mobile digits accurately on the 4 GB CSP box. Falls back to Tesseract
-# if absent, so the app still runs without it.
+# account/mobile digits accurately on the 4 GB CSP box. This same runtime also
+# powers OnnxTR below.
 onnxruntime==1.19.2
 # OnnxTR = docTR's detection+recognition models on ONNX Runtime (NO PyTorch).
 # This is the ACCURATE scanned-OCR engine for the 4 GB CPU box: detection finds
@@ -50,5 +51,6 @@ onnxruntime==1.19.2
 # nothing is downloaded at run time (DPDP-safe). Base package (not [cpu]) so it
 # reuses the onnxruntime pinned above and does NOT pull a second opencv. Its
 # small deps (scipy, pyclipper, rapidfuzz, ...) are resolved automatically;
-# pypdfium2 4.30.0 above already satisfies it. Falls back to Tesseract if absent.
+# pypdfium2 4.30.0 above already satisfies it. This is the OCR engine — there is
+# no Tesseract fallback anymore.
 onnxtr==0.8.1

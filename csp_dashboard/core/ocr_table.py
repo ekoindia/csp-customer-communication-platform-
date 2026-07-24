@@ -27,7 +27,18 @@ from typing import List, Dict
 import numpy as np
 import cv2
 from PIL import Image
-import pytesseract
+
+# Tesseract is OPTIONAL. The platform runs entirely on OnnxTR (deep-learning
+# OCR on ONNX Runtime, no PyTorch) — both on the 4 GB CSP box and on the
+# centralized server. pytesseract/Tesseract are no longer a dependency; if the
+# binding happens to be present it is still used for a couple of cheap helpers
+# (word boxes / orientation / single-cell reads), but every call site degrades
+# gracefully to the deep engine (or a safe default) when it is absent, so the
+# import must never be able to crash module load.
+try:
+    import pytesseract
+except ImportError:  # dependency removed — deep engine handles everything
+    pytesseract = None
 
 # Balance-band patterns seen in the real document: 0.1<100, 100<1000,
 # 1000<10000, B>10000 (and OCR-mangled variants of the top band).
@@ -131,11 +142,17 @@ _PADDLE_MODEL = None
 _RAPIDOCR_MODEL = None
 
 
-def _ensure_tesseract():
+def _ensure_tesseract() -> bool:
+    """Point pytesseract at the bundled binary (if any) on first use. Returns
+    False when the binding isn't installed, so callers skip the Tesseract path
+    instead of raising."""
     global _TESSERACT_OK
+    if pytesseract is None:
+        return False
     if _TESSERACT_OK is None:
         import core.ocr  # noqa: F401  (sets pytesseract.tesseract_cmd path)
         _TESSERACT_OK = True
+    return True
 
 
 def _doctr_model():
@@ -573,7 +590,8 @@ def _tesseract_words(gray_np: np.ndarray):
     as _doctr_words so the accurate grid logic in _extract_grid runs identically
     — with NO PyTorch loaded. This is the low-RAM path (~150 MB) for a 4 GB CSP
     PC. x is the word centre (matching docTR) so column bucketing lines up."""
-    _ensure_tesseract()
+    if not _ensure_tesseract():
+        return None
     img = Image.fromarray(gray_np) if isinstance(gray_np, np.ndarray) else gray_np
     data = pytesseract.image_to_data(img, config="--psm 6",
                                      output_type=pytesseract.Output.DICT)
@@ -662,6 +680,9 @@ def detect_angle(gray: Image.Image) -> int:
     measured to detect orientation correctly and ~2.5x faster than 2000 px on a
     260-DPI page; only if it finds ZERO mobiles (too small / sparse page) do we
     retry at full size, so the common case is fast and edge cases stay robust."""
+    if pytesseract is None:
+        # Tesseract not installed: use the deep-engine orientation probe.
+        return _detect_angle_deep(gray)
     for cap in (1400, 2400):
         probe = gray.copy()
         probe.thumbnail((cap, cap))
@@ -721,6 +742,8 @@ def _row_band_edges(gray_np: np.ndarray) -> List[int]:
 
 
 def _words(gray: Image.Image) -> List[Dict]:
+    if pytesseract is None:
+        return []
     data = pytesseract.image_to_data(gray, config="--psm 6",
                                      output_type=pytesseract.Output.DICT)
     out = []
@@ -1118,6 +1141,8 @@ def _grid_line_positions(bw: np.ndarray, axis: int, frac: int,
 
 def _ocr_cell(gray_np: np.ndarray, y0: int, y1: int, x0: int, x1: int,
               whitelist: str = None) -> str:
+    if pytesseract is None:
+        return ""
     crop = gray_np[y0 + 3:y1 - 3, x0 + 3:x1 - 3]
     if crop.size == 0 or crop.shape[0] < 10 or crop.shape[1] < 10:
         return ""
