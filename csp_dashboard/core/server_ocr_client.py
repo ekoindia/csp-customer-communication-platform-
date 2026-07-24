@@ -158,6 +158,15 @@ def extract_file(path: str, file_type: str, page_from: int = None,
         # drops from pages x per-page to ~ceil(pages/parallel) x per-page.
         for wave_start in range(lo - 1, hi, parallel):
             wave = list(range(wave_start, min(wave_start + parallel, hi)))
+            # Show which pages are being read DURING this wave (the ~seconds-long
+            # server call), so the CSP screen shows live progress instead of a
+            # static message while a wave is in flight.
+            if progress:
+                a = wave[0] - (lo - 1) + 1
+                b = wave[-1] - (lo - 1) + 1
+                label = f"page {a}" if a == b else f"pages {a}-{b}"
+                progress(int(done / n * 1000), 1000,
+                         f"Reading {label} of {n}...")
             pngs = []
             for pno in wave:
                 page = pdf[pno]
