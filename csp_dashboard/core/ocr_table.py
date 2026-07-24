@@ -426,7 +426,6 @@ def _onnxtr_model():
     with _ONNXTR_LOCK:
         if _ONNXTR_MODEL is not None or _ONNXTR_TRIED:
             return _ONNXTR_MODEL
-        _ONNXTR_TRIED = True
         try:
             import config
             from onnxtr.models import ocr_predictor
@@ -451,6 +450,12 @@ def _onnxtr_model():
         except Exception as e:
             print(f"[ocr] OnnxTR unavailable ({e}); will use Tesseract")
             _ONNXTR_MODEL = None
+        finally:
+            # Mark "tried" only AFTER the (slow, ~15 s) build finishes, INSIDE the
+            # lock. This way concurrent first-callers block on the lock and then
+            # reuse the built model, instead of the outside fast-path returning a
+            # half-built None mid-build (which dropped ~2/12 parallel pages to 0).
+            _ONNXTR_TRIED = True
     return _ONNXTR_MODEL
 
 
