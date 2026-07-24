@@ -54,11 +54,25 @@ def _load_key() -> bytes:
     return key
 
 
+_CIPHER = None
+
+
+def _cipher() -> Fernet:
+    """Cache the Fernet cipher for the process lifetime. Re-reading the key file
+    and rebuilding Fernet on EVERY field was fine for a few reads but adds up
+    when committing a 50-row page (~300 field encryptions); the key doesn't
+    change during a run, so building it once is safe and much faster."""
+    global _CIPHER
+    if _CIPHER is None:
+        _CIPHER = Fernet(_load_key())
+    return _CIPHER
+
+
 def encrypt_field(value) -> str | None:
     """Encrypt a PII string for storage. None/'' -> None (nothing to protect)."""
     if value is None or value == "":
         return None
-    token = Fernet(_load_key()).encrypt(str(value).encode("utf-8"))
+    token = _cipher().encrypt(str(value).encode("utf-8"))
     return token.decode("ascii")
 
 
@@ -70,7 +84,7 @@ def decrypt_field(token) -> str | None:
     if token is None or token == "":
         return None
     try:
-        return Fernet(_load_key()).decrypt(token.encode("ascii")).decode("utf-8")
+        return _cipher().decrypt(token.encode("ascii")).decode("utf-8")
     except (InvalidToken, ValueError, TypeError):
         return None
 

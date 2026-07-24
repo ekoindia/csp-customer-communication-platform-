@@ -10,6 +10,11 @@ def get_connection() -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     conn.execute("PRAGMA journal_mode = WAL")
+    # WAL + NORMAL: durable enough (syncs at checkpoints, not on every commit) and
+    # MUCH faster when a batch does many small commits — creating cases for a
+    # 50-row page was doing 100+ per-row fsyncs, which is what made "Saving..."
+    # slow on the CSP disk. NORMAL removes the per-commit fsync.
+    conn.execute("PRAGMA synchronous = NORMAL")
     return conn
 
 
