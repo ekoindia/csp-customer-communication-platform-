@@ -206,11 +206,42 @@ def _ocr_pdf(path: str, ddir: str, start_idx: int,
     server_result = _try_server_ocr(path, "pdf", page_from, page_to, progress)
     if server_result:
         rows, span = server_result
-        # Centralized OCR path: nothing is written to the CSP disk (no source
-        # page images). The CSP reviews the extracted rows as a table, exactly
-        # like a bank Excel/CSV upload. This keeps the scanned document off the
-        # local machine entirely (it only ever existed encrypted, in transit).
-        return rows, [], span
+        # Render the SOURCE pages (light, review quality) so the CSP can COMPARE
+        # the extracted rows against the actual scan side-by-side. These images
+        # live only in the transient draft folder and are deleted on commit or
+        # cancel (same DPDP-safe lifecycle as a normal upload) — the scan itself
+        # only ever left the machine encrypted, in transit.
+        import gc
+        import pypdfium2 as pdfium
+        images: List[str] = []
+        pdf = pdfium.PdfDocument(path)
+        try:
+            total = len(pdf)
+            lo = max(1, page_from or 1)
+            hi = min(total, page_to or total)
+            if lo > hi:
+                lo, hi = 1, total
+            npages = hi - lo + 1
+            for pno in range(lo - 1, hi):
+                page = pdf[pno]
+                bitmap = page.render(scale=1600 / 842)   # A4-width review render
+                pil = bitmap.to_pil()
+                try:
+                    images.append(_save_page(pil, ddir, start_idx + len(images)))
+                    if progress:
+                        progress(900 + int(len(images) / npages * 100), 1000,
+                                 "Preparing review images...")
+                finally:
+                    try:
+                        pil.close()
+                        bitmap.close()
+                        page.close()
+                    except Exception:
+                        pass
+                    gc.collect()
+        finally:
+            pdf.close()
+        return rows, images, span
 
     from core.ocr_table import extract_with_image
     import pypdfium2 as pdfium
@@ -292,9 +323,16 @@ def _ocr_image(path: str, ddir: str, start_idx: int):
     server_result = _try_server_ocr(path, "image", None, None, None)
     if server_result:
         rows, _span = server_result
-        # Centralized OCR path: nothing written to the CSP disk (table-only
-        # review), the image only ever existed encrypted in transit.
-        return rows, []
+        # Keep the SOURCE image (light copy) so the CSP can compare extracted
+        # rows against the scan. Transient draft image, deleted on commit/cancel.
+        img = _downscale_for_ocr(Image.open(path))
+        try:
+            return rows, [_save_page(img, ddir, start_idx)]
+        finally:
+            try:
+                img.close()
+            except Exception:
+                pass
     # Reject decompression-bomb images and check free RAM before decoding a
     # potentially large user-supplied image on the 4 GB box.
     Image.MAX_IMAGE_PIXELS = OCR_MAX_IMAGE_PIXELS

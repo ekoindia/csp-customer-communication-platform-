@@ -238,9 +238,10 @@ def test_extraction_uses_server_ocr_before_local_image_ocr(tmp_path, monkeypatch
 
     rows, images = extraction._ocr_image(str(upload), str(ddir), 0)
     assert rows[0]["name"] == "SERVER OCR ROW"
-    # Centralized OCR writes NOTHING to the CSP disk — table-only review.
-    assert images == []
-    assert not (ddir / "page_000.png").exists()
+    # Source image is kept (transient, in the draft) so the CSP can compare the
+    # extracted rows against the scan; deleted on commit/cancel.
+    assert len(images) == 1
+    assert (ddir / "page_000.png").exists()
 
 
 def test_pdf_is_sent_one_page_per_request_and_combined(tmp_path, monkeypatch):
