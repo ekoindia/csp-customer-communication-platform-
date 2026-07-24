@@ -89,25 +89,39 @@ add("PASS" if importlib.util.find_spec("psutil") else "WARN", "psutil",
     "present" if importlib.util.find_spec("psutil") else
     "absent - using ctypes RAM fallback (fine)")
 
-# 6. OnnxTR engine (the deep-learning OCR the deploy PC actually uses; no
-#    Tesseract, no PyTorch — models are bundled in core/models/).
+# 6. OCR engine. On a normal CSP install OCR runs on the Eko SERVER
+#    (SERVER_OCR_ENABLED), so there is NOTHING to check locally — that is the
+#    expected, correct state. A local OCR engine is only present on a dev box or
+#    an optional fully-offline on-prem OCR install.
 ocr_ok = False
+server_ocr = False
 try:
-    import core.ocr_table as _ot
-    if _ot.onnxtr_available():
-        add("PASS", "OnnxTR OCR engine", "bundled models present (no PyTorch)")
-        ocr_ok = True
-    else:
-        add("WARN", "OnnxTR OCR engine",
-            "onnxtr/models not found - only needed for SCANNED PDF/image OCR; "
-            "Excel/CSV uploads work without it. pip install onnxtr onnxruntime.")
-except Exception as e:
-    add("WARN", "OnnxTR OCR engine", f"unavailable ({e}) - scans only")
+    import config
+    server_ocr = bool(getattr(config, "SERVER_OCR_ENABLED", False))
+except Exception:
+    pass
+if server_ocr:
+    add("PASS", "OCR engine", "server-side (Eko OCR server) - no local OCR needed")
+else:
+    try:
+        import core.ocr_table as _ot
+        if _ot.onnxtr_available():
+            add("PASS", "Local OCR engine (OnnxTR)", "bundled models present (no PyTorch)")
+            ocr_ok = True
+        else:
+            add("WARN", "OCR engine",
+                "server OCR is OFF and no local OnnxTR found - scanned PDF/image "
+                "uploads won't work. Turn on SERVER_OCR_ENABLED (recommended) or "
+                "pip install onnxtr onnxruntime for offline OCR. CSV/Excel work either way.")
+    except Exception as e:
+        add("WARN", "OCR engine", f"no local engine ({e}); enable server OCR or CSV/Excel only")
 
-# 7. End-to-end OCR smoke test (only meaningful if the OCR engine is present;
-#    scanned-doc OCR is optional — CSV/Excel is the main, OCR-free path).
+# 7. End-to-end LOCAL OCR smoke test — only when a local engine is installed
+#    (dev / offline on-prem box). Skipped on a server-OCR CSP, which is normal.
 if not ocr_ok:
-    add("WARN", "OCR smoke test", "skipped - OnnxTR not installed (scans only)")
+    add("PASS" if server_ocr else "WARN", "Local OCR smoke test",
+        "skipped - OCR runs on the Eko server" if server_ocr
+        else "skipped - no local OCR engine (scans go to the server when enabled)")
 else:
     try:
         import numpy as np

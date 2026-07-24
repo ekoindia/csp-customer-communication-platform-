@@ -5,7 +5,8 @@ REM
 REM   The CSP double-clicks THIS single file. It then automatically:
 REM     1. Downloads the application package from the internet.
 REM     2. Installs it into  C:\CSP_Platform  (a permanent C: drive home).
-REM     3. Downloads + installs Python, Node.js, Tesseract-OCR + all deps.
+REM     3. Downloads + installs Python, Node.js + the light app deps (no OCR
+REM        engine — scanned documents are OCR'd on the Eko server).
 REM     4. Connects to the Eko Admin Portal - CSP_ID/API_KEY below, if set,
 REM        are written straight into .env, so INSTALL.bat's own connect
 REM        prompt is skipped entirely (nothing left for the CSP to type).
@@ -109,7 +110,10 @@ if exist "%INSTALL_DIR%\config.py" (
     set "KEEP=/XF config.py secret.key csp_platform.db /XD .wa_session"
 )
 echo Installing application files into %INSTALL_DIR% ...
-robocopy "%SRCDIR%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP %KEEP% >nul
+REM Exclude core\models (OnnxTR/custom OCR weights, ~87 MB): OCR runs on the Eko
+REM server, so the CSP never needs the model files locally. (The whole-repo zip
+REM may still contain them; this stops them landing in the install.)
+robocopy "%SRCDIR%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP /XD "%SRCDIR%\core\models" %KEEP% >nul
 
 REM ---------- 3b. Pre-configure the Eko Admin Portal connection ----------
 REM If this file was generated for a specific CSP (CSP_ID/API_KEY are not the

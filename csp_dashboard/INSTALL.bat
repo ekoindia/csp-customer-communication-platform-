@@ -5,8 +5,9 @@ REM
 REM   The CSP double-clicks this ONE file. It:
 REM     1. Copies the software into  C:\CSP_Platform  (a permanent home on the
 REM        C: drive - NOT the Desktop, NOT run from VS Code).
-REM     2. Installs everything needed - Python, Node.js, Tesseract-OCR, and all
-REM        app dependencies - with no manual downloads (uses winget).
+REM     2. Installs everything needed - Python, Node.js, and the light app
+REM        dependencies - with no manual downloads (uses winget). NO OCR engine
+REM        is installed here: scanned documents are OCR'd on the Eko server.
 REM     3. Puts a "CSP Platform" icon on the Desktop + Start Menu.
 REM     4. Starts the app.
 REM   From then on the CSP just double-clicks the Desktop icon.
@@ -32,8 +33,10 @@ if /I not "%SRC%"=="%INSTALL_DIR%" (
     if exist "%INSTALL_DIR%\config.py" set "KEEPCFG=config.py .env pii.key"
     REM Copy the app tree, skipping dev/server-only + machine-specific + secret
     REM files so the CSP machine gets a clean customer-facing install.
+    REM core\models (OnnxTR/custom OCR weights, ~87 MB) is EXCLUDED: OCR runs on
+    REM the Eko server, so the CSP never needs the model files locally.
     robocopy "%SRC%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP ^
-        /XD ".git" ".venv" "node_modules" "__pycache__" ".pytest_cache" "admin_portal" "admin_dashboard" "tests" "scripts" "data" "update" ".wa_session" ^
+        /XD ".git" ".venv" "node_modules" "__pycache__" ".pytest_cache" "admin_portal" "admin_dashboard" "tests" "scripts" "data" "update" ".wa_session" "%SRC%\core\models" ^
         /XF "secret.key" "*.db" "*.pyc" %KEEPCFG% >nul
     if not exist "%INSTALL_DIR%\uploads" mkdir "%INSTALL_DIR%\uploads"
     echo Copy complete. Continuing setup inside %INSTALL_DIR% ...
@@ -97,13 +100,11 @@ if not defined PY (
 )
 echo [OK] Python: %PY%
 
-REM ---------- 2. Tesseract-OCR (reads scanned documents) ----------
-if exist "%ProgramFiles%\Tesseract-OCR\tesseract.exe" goto tess_done
-where tesseract >nul 2>&1 && goto tess_done
-echo Installing Tesseract-OCR ...
-where winget >nul 2>&1 && winget install -e --id UB-Mannheim.TesseractOCR --silent --accept-package-agreements --accept-source-agreements
-:tess_done
-echo [OK] Tesseract step done.
+REM ---------- 2. (OCR engine) — nothing to install ----------
+REM Scanned PDFs/images are OCR'd on the Eko central server, not on this PC, so
+REM there is NO Tesseract / docTR / OnnxTR install here. CSV/Excel/typed-PDF are
+REM parsed locally with no OCR at all. This is what keeps the install small/fast.
+echo [OK] OCR runs on the Eko server - nothing to install locally.
 
 REM ---------- 3. Node.js LTS (WhatsApp sending) ----------
 where node >nul 2>&1 && goto node_done

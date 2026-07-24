@@ -30,7 +30,10 @@ $excludeDirs = @(
     # data/ holds the REAL scanned bank PDF used for OCR development — it contains
     # live customer PII and must NEVER be shipped to a CSP or published. Exclude it.
     (Join-Path $root "data"),
-    (Join-Path $root "update")          # updater staging - machine-specific
+    (Join-Path $root "update"),         # updater staging - machine-specific
+    # core\models = OnnxTR/custom OCR weights (~87 MB). OCR runs on the Eko
+    # server, so the CSP package must NOT carry the model files at all.
+    (Join-Path $root "core\models")
 )
 # __pycache__ appears in many folders -> exclude by name (no path)
 # Also exclude INTERNAL Eko documents (emails, recommendations, context) - these
