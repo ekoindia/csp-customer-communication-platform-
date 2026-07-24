@@ -1,22 +1,28 @@
-# ── LITE install profile — for the real 4 GB deploy PC (Dell Inspiron 3268) ──
+# ── CSP install profile — server-OCR client (real 4 GB Dell Inspiron 3268) ──
 #
-# This machine (4 GB RAM, i3-7100, no GPU) runs OnnxTR OCR (docTR models on ONNX
-# Runtime, NO PyTorch) — core/hardware.py auto-selects it below
-# OCR_RAM_THRESHOLD_GB. PyTorch + docTR are NEVER loaded there. Installing them
-# would waste ~2 GB of the ~52 GB free disk for zero benefit, so this profile
-# deliberately OMITS `python-doctr` and does NOT install torch/torchvision.
+# OCR does NOT run on the CSP machine. Scanned PDFs/images are encrypted and
+# sent to the Eko central OCR server (SERVER_OCR_ENABLED=1 in .env → see
+# config.py ADMIN_API_BASE); the server does the deep-learning OCR and returns
+# an Excel that is imported straight into the review screen. So the CSP box
+# needs NO OCR model files and NO OCR runtime:
+#
+#   • NO onnxtr / onnxruntime  (deep OCR runs on the server, not here)
+#   • NO torch / python-doctr  (never on a 4 GB box)
+#   • NO Tesseract             (dropped as a dependency entirely)
+#   • NO bundled core/models/*.onnx shipped to the CSP (the installer excludes
+#     them — they exist only for the server / an optional on-prem OCR box)
+#
+# This is what makes the install small and fast: the CSP only downloads a
+# handful of light pure-Python/wheels packages — no ~700 MB model runtime, no
+# scipy build, no Tesseract winget download.
 #
 #   pip install -r requirements-lite.txt
 #
-# The scanned-document path works via OnnxTR (grid detection + deep word
-# reading, no Tesseract). CSV/Excel/typed-PDF need no OCR at all. If this box is
-# ever upgraded to >= 6 GB RAM and you want docTR accuracy, install the full
-# requirements.txt instead (adds python-doctr + CPU torch) — no code change.
-#
-# Tesseract is NOT a dependency anymore. The code still uses pytesseract for a
-# couple of cheap helpers IF the binding happens to be installed, but every
-# call site degrades to the OnnxTR deep engine when it is absent — so nothing
-# here installs it.
+# CSV / Excel / typed-PDF uploads are parsed locally (100% accurate, no OCR at
+# all). Only SCANNED PDFs/images use the server. If you ever want a fully
+# offline on-prem OCR box instead of the server, install requirements.txt
+# (adds python-doctr + torch) or add onnxtr+onnxruntime back — no code change,
+# core/hardware.py auto-detects what is present.
 
 flask==3.0.3
 pydantic==2.7.4
@@ -31,26 +37,12 @@ requests==2.32.3
 # .env.example) instead of hardcoding them in config.py.
 python-dotenv==1.0.1
 # Field-level encryption at rest for customer PII (core/crypto.py) — required
-# on every profile, lite included, since PII protection can't depend on OCR mode.
+# on every profile since PII protection can't depend on OCR mode. Also encrypts
+# the scan in transit to the OCR server (core/ocr_envelope.py).
 cryptography==43.0.3
-# Scanned-document OCR support (grid detection + page rendering), no deep learning:
+# Render a scanned PDF's pages to images CLIENT-SIDE before encrypting + sending
+# them to the OCR server. Small, no deep learning.
 pypdfium2==4.30.0
 numpy==2.1.3
 opencv-contrib-python-headless==4.10.0.84
 psutil==5.9.8
-# Runtime for the custom on-device digit OCR model (core/ocr_onnx.py). CPU-only,
-# ~15-50 MB, numpy-2 compatible — NOT PyTorch. Lets the trained crnn.onnx read
-# account/mobile digits accurately on the 4 GB CSP box. This same runtime also
-# powers OnnxTR below.
-onnxruntime==1.19.2
-# OnnxTR = docTR's detection+recognition models on ONNX Runtime (NO PyTorch).
-# This is the ACCURATE scanned-OCR engine for the 4 GB CPU box: detection finds
-# every table row (Tesseract could not) and reads names; account/mobile digits
-# still come from the custom crnn.onnx above. ~700 MB peak, fits 4 GB. Models are
-# BUNDLED in core/models/ (db_mobilenet_v3_large + crnn_mobilenet_v3_small), so
-# nothing is downloaded at run time (DPDP-safe). Base package (not [cpu]) so it
-# reuses the onnxruntime pinned above and does NOT pull a second opencv. Its
-# small deps (scipy, pyclipper, rapidfuzz, ...) are resolved automatically;
-# pypdfium2 4.30.0 above already satisfies it. This is the OCR engine — there is
-# no Tesseract fallback anymore.
-onnxtr==0.8.1
