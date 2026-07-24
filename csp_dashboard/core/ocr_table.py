@@ -432,20 +432,17 @@ def _onnxtr_model():
             from onnxtr.models import ocr_predictor
 
             if bool(getattr(config, "OCR_ONNXTR_HEAVY", False)):
-                # OPT-IN heavy arches (default db_resnet50 + parseq): more
-                # accurate, but OnnxTR fetches their ONNX weights on first use.
-                # If that download fails (e.g. a server with no outbound access
-                # to the model host), fall back to the bundled models below —
-                # never return None just because a download didn't work.
-                det_arch = str(getattr(config, "ONNXTR_DET_ARCH", "db_resnet50"))
-                reco_arch = str(getattr(config, "ONNXTR_RECO_ARCH", "parseq"))
+                # OPT-IN HEAVY arches (db_resnet50 + parseq) — the CPU accuracy
+                # ceiling. Built from BUNDLED ONNX files (no network), so it works
+                # on a locked-down server that can't download weights. If the
+                # heavy files aren't present it falls back to the light bundle —
+                # OCR never silently returns nothing.
                 try:
-                    _ONNXTR_MODEL = ocr_predictor(det_arch=det_arch, reco_arch=reco_arch,
-                                                  assume_straight_pages=True)
-                    print(f"[ocr] OnnxTR heavy arches: det={det_arch} reco={reco_arch}")
+                    _ONNXTR_MODEL = _build_heavy_onnxtr(ocr_predictor)
+                    print("[ocr] OnnxTR HEAVY arches (db_resnet50 + parseq, bundled)")
                 except Exception as he:
                     print(f"[ocr] heavy arches unavailable ({he}); "
-                          f"falling back to bundled models")
+                          f"falling back to bundled light models")
                     _ONNXTR_MODEL = _build_bundled_onnxtr(ocr_predictor)
             else:
                 # Default (CSP box AND server): the small BUNDLED models — no
@@ -474,6 +471,33 @@ def _build_bundled_onnxtr(ocr_predictor):
     reco = crnn_vgg16_bn(model_path=reco_path, engine_cfg=cfg)
     # Small recognition batch keeps peak RAM ~640 MB on the 4 GB box
     # (default 128 would spike to ~1.7 GB). det_bs=1: one page at a time.
+    reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
+    return ocr_predictor(det_arch=det, reco_arch=reco, assume_straight_pages=True,
+                         reco_bs=reco_bs, det_bs=1)
+
+
+def _build_heavy_onnxtr(ocr_predictor):
+    """Build the ACCURATE heavy OnnxTR predictor (db_resnet50 detection + parseq
+    recognition) from BUNDLED ONNX files — no network, so it runs on a
+    locked-down CPU server. This is the highest-accuracy option that fits a
+    GPU-less box (doc-VLMs like DeepSeek/Unlimited-OCR would need a GPU).
+    Raises if the heavy weights aren't bundled so the caller falls back."""
+    import config
+    import onnxruntime as ort
+    from onnxtr.models.detection import db_resnet50
+    from onnxtr.models.recognition import parseq
+    from onnxtr.models.engine import EngineConfig
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    det_p = getattr(config, "ONNXTR_DET_HEAVY_PATH", "") or os.path.join(base, "db_resnet50.onnx")
+    reco_p = getattr(config, "ONNXTR_RECO_HEAVY_PATH", "") or os.path.join(base, "parseq.onnx")
+    if not (os.path.isfile(det_p) and os.path.isfile(reco_p)):
+        raise FileNotFoundError("heavy onnx weights (db_resnet50/parseq) not bundled")
+    so = ort.SessionOptions()
+    so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 6))
+    so.inter_op_num_threads = 1
+    cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
+    det = db_resnet50(model_path=det_p, engine_cfg=cfg)
+    reco = parseq(model_path=reco_p, engine_cfg=cfg)
     reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
     return ocr_predictor(det_arch=det, reco_arch=reco, assume_straight_pages=True,
                          reco_bs=reco_bs, det_bs=1)
