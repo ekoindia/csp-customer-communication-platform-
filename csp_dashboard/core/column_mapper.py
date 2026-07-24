@@ -16,6 +16,11 @@ Case-insensitive, partial-match based — handles OCR typos and formatting varia
 # back post-MVP, just re-add its line here — no other code change needed.
 _FIELD_KEYWORDS = {
     "account_number": ["account", "acct", "acc no", "account no",
+                       # Some CSP lists head this column "A/C No" / "A/C NO." /
+                       # "AC No" instead of "Account No". Match those WITHOUT a
+                       # bare "a/c" (which would also match the "A/C Name" header
+                       # and steal the name column).
+                       "a/c no", "a/c number", "a/cno", "ac no", "acno",
                        "memb_cust", "cust_a", "memb cust", "member"],
     "name":           ["name", "customer name", "holder"],
     "mobile":         ["mobile", "phone", "contact", "mo no", "mob", "msisdn"],
@@ -35,7 +40,9 @@ def map_columns(raw_headers: list) -> dict:
     """
     mapping = {}
     used = set()  # a raw header, once claimed, can't be reused by a later field
-    lowered = {h: h.lower().strip() for h in raw_headers if h}
+    # Lowercase AND collapse internal whitespace runs to a single space, so an
+    # OCR'd header like "A/C  No" (double space) still matches the "a/c no" alias.
+    lowered = {h: " ".join(h.lower().split()) for h in raw_headers if h}
 
     for field, keywords in _FIELD_KEYWORDS.items():
         for raw, low in lowered.items():
