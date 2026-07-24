@@ -126,6 +126,9 @@ if not "%CSP_ID%"=="REPLACE-CSP-ID" if not "%API_KEY%"=="REPLACE-API-KEY" (
             echo ADMIN_CSP_ID=%CSP_ID%
             echo ADMIN_API_KEY=%API_KEY%
             echo ADMIN_REPORT_ENABLED=1
+            REM OCR runs on the Eko server for CSP installs (no local OCR engine
+            REM ships), so this MUST be on or scanned uploads extract 0 rows.
+            echo SERVER_OCR_ENABLED=1
             if not "%ADMIN_API_BASE%"=="REPLACE-ADMIN-API-BASE" echo ADMIN_API_BASE=%ADMIN_API_BASE%
         ) > "%INSTALL_DIR%\.env"
         echo Pre-configured for CSP %CSP_ID% - connects to Eko automatically.
