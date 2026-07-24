@@ -129,9 +129,12 @@ def test_server_ocr_pins_configured_rapidocr_engine(monkeypatch):
     assert rows == [{"name": "SERVER"}]
     assert pages == 1
     assert seen == {"engine": "rapidocr", "override": "rapidocr", "strict": True}
-    assert config.OCR_ENGINE == "auto"
-    assert ocr_table._ENGINE_OVERRIDE is None
-    assert ocr_table._STRICT_ENGINE is False
+    # Engine is PINNED process-wide (not restored per request) — required for
+    # thread-safety when several OCR pages are processed concurrently. Restoring
+    # would race with a concurrent request and corrupt its extraction.
+    assert config.OCR_ENGINE == "rapidocr"
+    assert ocr_table._ENGINE_OVERRIDE == "rapidocr"
+    assert ocr_table._STRICT_ENGINE is True
 
 
 def test_rapidocr_words_adapter(monkeypatch):
