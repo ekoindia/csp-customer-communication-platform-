@@ -73,3 +73,7 @@ Thumbs.db
 
 # Throwaway OCR test venv (never commit)
 .venv_onnxtr/
+
+# Heavy OnnxTR weights (~188MB) — opt-in, fetched/placed on the server only, not committed
+csp_dashboard/core/models/db_resnet50.onnx
+csp_dashboard/core/models/parseq.onnx
