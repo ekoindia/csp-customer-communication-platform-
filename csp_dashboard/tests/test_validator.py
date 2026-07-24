@@ -56,6 +56,6 @@ def test_optional_fields_default_none():
 def test_missing_balance_band_allowed():
     # Some CSP bank lists have NO balance-band column (Khusrupur format).
     # The row must still validate, with balance_band defaulting to "".
-    row = CustomerRow(account_number="35880060911", name="MONU KUMAR",
-                      mobile="7644097341")
+    row = CustomerRow(account_number="99990000001", name="TEST KUMAR",
+                      mobile="9990000001")
     assert row.balance_band == ""

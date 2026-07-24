@@ -24,12 +24,12 @@ def test_ac_no_dotted_and_spaced_variants():
 def test_extract_row_bandless_format():
     headers = ["A/C No", "A/C Name", "Address", "Mobile No"]
     m = map_columns(headers)
-    raw = {"A/C No": "35880060911", "A/C Name": "MONU KUMAR",
-           "Address": "PAPPU SINGH LODIPUR ... PATNA", "Mobile No": "7644097341"}
+    raw = {"A/C No": "99990000001", "A/C Name": "TEST KUMAR",
+           "Address": "VILL-SAMPLE SAMPLE BLOCK DIST-SAMPLE", "Mobile No": "9990000001"}
     row = extract_row(raw, m)
-    assert row["account_number"] == "35880060911"
-    assert row["name"] == "MONU KUMAR"
-    assert row["mobile"] == "7644097341"
+    assert row["account_number"] == "99990000001"
+    assert row["name"] == "TEST KUMAR"
+    assert row["mobile"] == "9990000001"
     # balance_band absent from the mapping -> not in the extracted row.
     assert "balance_band" not in row
 
