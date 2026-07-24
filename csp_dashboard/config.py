@@ -144,9 +144,16 @@ SERVER_OCR_ENGINE = os.environ.get("SERVER_OCR_ENGINE", "onnxtr").lower()
 SERVER_OCR_TIMEOUT_SEC = int(os.environ.get("SERVER_OCR_TIMEOUT_SEC", "900"))
 SERVER_OCR_MAX_MB = int(os.environ.get("SERVER_OCR_MAX_MB", "100"))
 SERVER_OCR_RENDER_DPI = int(os.environ.get("SERVER_OCR_RENDER_DPI", "300"))
-# Protect the shared portal box: cap simultaneous OCR jobs so a burst can't
-# exhaust RAM / starve the fleet-heartbeat endpoints they share a process with.
-SERVER_OCR_MAX_CONCURRENCY = int(os.environ.get("SERVER_OCR_MAX_CONCURRENCY", "2"))
+# Max simultaneous OCR jobs on the server. Raised to exploit the 40-vCPU box:
+# the client sends pages in parallel (SERVER_OCR_PARALLEL) and each job now uses
+# fewer threads (TORCH_MAX_THREADS set in deploy/restart_admin.sh) so several
+# pages OCR at once across the cores instead of one page hogging 16 threads.
+SERVER_OCR_MAX_CONCURRENCY = int(os.environ.get("SERVER_OCR_MAX_CONCURRENCY", "8"))
+# CSP renders + sends this many PDF pages CONCURRENTLY (in waves) so a multi-page
+# scan finishes in wall-clock ~= pages/parallel instead of pages x per-page time.
+# Must be <= the server's SERVER_OCR_MAX_CONCURRENCY. Memory-safe: only this many
+# rendered page images are held at once (fine on the 4 GB box).
+SERVER_OCR_PARALLEL = int(os.environ.get("SERVER_OCR_PARALLEL", "6"))
 # How long a client waits for an OCR slot on the server before giving up (and
 # falling back to local OCR). Separate from the OCR compute timeout above.
 SERVER_OCR_QUEUE_WAIT_SEC = int(os.environ.get("SERVER_OCR_QUEUE_WAIT_SEC", "20"))

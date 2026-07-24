@@ -260,6 +260,7 @@ def test_pdf_is_sent_one_page_per_request_and_combined(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ADMIN_API_BASE", "https://eko.example/api/v1")
     monkeypatch.setattr(config, "ADMIN_CSP_ID", "CSP777")
     monkeypatch.setattr(config, "ADMIN_API_KEY", "real-secret-key")
+    monkeypatch.setattr(config, "SERVER_OCR_PARALLEL", 1)  # deterministic order for the assert
 
     calls = {"n": 0}
 
@@ -276,7 +277,7 @@ def test_pdf_is_sent_one_page_per_request_and_combined(tmp_path, monkeypatch):
     assert result["page_count"] == 3
     rows = xlsx_bytes_to_rows(result["xlsx_bytes"])
     assert [r["name"] for r in rows] == ["ROW1", "ROW2", "ROW3"]   # combined, in order
-    assert any("page 3 of 3" in m for m in seen)    # per-page progress fired
+    assert any("3 of 3 pages" in m for m in seen)    # per-page progress fired
 
 
 def test_ocr_excel_roundtrip_is_lossless_including_leading_zeros():
