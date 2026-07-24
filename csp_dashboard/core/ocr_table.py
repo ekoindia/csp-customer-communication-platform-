@@ -460,11 +460,17 @@ def _onnxtr_model():
 
 
 def _build_bundled_onnxtr(ocr_predictor):
-    """Build the OnnxTR predictor from the small BUNDLED ONNX files (no network).
-    Used as the default and as the fallback when heavy weights can't download."""
+    """Build the OnnxTR predictor from BUNDLED ONNX files (no network). Default
+    and the fallback when heavy weights can't download.
+
+    Detection can be upgraded to db_resnet50 (config.OCR_ONNXTR_DET="resnet50")
+    when its bundled weight is present — a stronger detector that catches rows
+    db_mobilenet misses on dense tables (e.g. 52 vs 50 on a packed page), while
+    keeping crnn_vgg16 recognition (proven best on account/mobile DIGITS). Falls
+    back to db_mobilenet if the resnet50 weight isn't bundled."""
     import config
     import onnxruntime as ort
-    from onnxtr.models.detection import db_mobilenet_v3_large
+    from onnxtr.models.detection import db_mobilenet_v3_large, db_resnet50
     from onnxtr.models.recognition import crnn_vgg16_bn
     from onnxtr.models.engine import EngineConfig
     det_path, reco_path = _onnxtr_paths()
@@ -472,7 +478,15 @@ def _build_bundled_onnxtr(ocr_predictor):
     so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 4))
     so.inter_op_num_threads = 1
     cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
-    det = db_mobilenet_v3_large(model_path=det_path, engine_cfg=cfg)
+
+    base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
+    res50 = os.path.join(base, "db_resnet50.onnx")
+    if str(getattr(config, "OCR_ONNXTR_DET", "mobilenet")).lower() == "resnet50" \
+            and os.path.isfile(res50):
+        det = db_resnet50(model_path=res50, engine_cfg=cfg)
+        print("[ocr] OnnxTR detection = db_resnet50 (stronger row detection)")
+    else:
+        det = db_mobilenet_v3_large(model_path=det_path, engine_cfg=cfg)
     reco = crnn_vgg16_bn(model_path=reco_path, engine_cfg=cfg)
     # Small recognition batch keeps peak RAM ~640 MB on the 4 GB box
     # (default 128 would spike to ~1.7 GB). det_bs=1: one page at a time.
