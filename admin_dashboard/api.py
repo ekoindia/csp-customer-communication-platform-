@@ -134,26 +134,20 @@ def _extract_ocr_rows(file_bytes: bytes, file_type: str, page_from=None,
     if engine == "onnxtr" and not ocr_table.onnxtr_available():
         raise RuntimeError("SERVER_OCR_ENGINE=onnxtr but OnnxTR/models are not installed")
 
-    old_override = getattr(ocr_table, "_ENGINE_OVERRIDE", None)
-    old_strict = getattr(ocr_table, "_STRICT_ENGINE", False)
-    old_engine = getattr(config, "OCR_ENGINE", "auto")
-    ocr_table._ENGINE_OVERRIDE = engine
-    ocr_table._STRICT_ENGINE = True
-    config.OCR_ENGINE = engine
-    # Engine default on the server is the BUNDLED onnxtr models (db_mobilenet +
-    # crnn_mobilenet): committed in the repo, so they need NO runtime download
-    # and work offline — proven on the real SBI scans (account 100 / name 99 /
-    # band 95 / mobile 85 %). The heavier arches (db_resnet50 + parseq) are
-    # opt-in via OCR_ONNXTR_HEAVY=1, because they fetch weights on first use and
-    # a server without outbound access to the model host would otherwise get
-    # zero rows. When heavy IS enabled, _onnxtr_model falls back to the bundled
-    # models if the download fails, so OCR never silently returns nothing.
-    try:
-        return _extract_ocr_rows_with_engine(file_bytes, file_type, page_from, page_to)
-    finally:
-        ocr_table._ENGINE_OVERRIDE = old_override
-        ocr_table._STRICT_ENGINE = old_strict
-        config.OCR_ENGINE = old_engine
+    # THREAD-SAFETY: the server processes several OCR pages CONCURRENTLY, so we
+    # must NOT mutate-then-restore these module/config globals per request — a
+    # request's restore would race with another request mid-OCR and corrupt its
+    # extraction (observed: 12 parallel pages returned 105 rows instead of 180).
+    # The server always uses ONE engine, so we PIN it process-wide (idempotent:
+    # every concurrent request writes the same values) and never restore.
+    # Engine = BUNDLED onnxtr (db_mobilenet + crnn_vgg16, committed, offline,
+    # proven on real scans: account 100 / name 99 / band 95 / mobile 85 %).
+    if (getattr(ocr_table, "_ENGINE_OVERRIDE", None) != engine
+            or not getattr(ocr_table, "_STRICT_ENGINE", False)):
+        ocr_table._ENGINE_OVERRIDE = engine
+        ocr_table._STRICT_ENGINE = True
+        config.OCR_ENGINE = engine
+    return _extract_ocr_rows_with_engine(file_bytes, file_type, page_from, page_to)
 
 
 def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=None,
