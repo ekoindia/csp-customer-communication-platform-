@@ -1,3 +1,8 @@
+> SUPERSEDED (2026-07-21). The on-device phone OCR approach was built and tested
+> but failed on accuracy (see PROJECT_DOCUMENTATION.md Section 4.3). OCR now runs
+> server-side (documentation/SERVER_OCR_PIPELINE_DESIGN.md). The phone may remain
+> only as a capture client, not an OCR device. Kept for history only.
+
 # CSP Mobile Scanner App (APK) — build spec
 
 **Status:** design agreed 2026-07-20. Desktop side (decrypt + import + passphrase

@@ -20,6 +20,7 @@ import uuid
 import requests
 
 import config
+from core import admin_api_base
 from core.ocr_envelope import EnvelopeError, decrypt_json, encrypt_json
 
 
@@ -33,14 +34,14 @@ class _Retryable(Exception):
 
 def enabled() -> bool:
     return bool(getattr(config, "SERVER_OCR_ENABLED", False)
-                and getattr(config, "ADMIN_API_BASE", "")
+                and admin_api_base.get()
                 and getattr(config, "ADMIN_CSP_ID", "")
                 and getattr(config, "ADMIN_API_KEY", "")
                 and config.ADMIN_API_KEY != "demo-key-CSP001")
 
 
 def _endpoint() -> str:
-    return getattr(config, "ADMIN_API_BASE", "").rstrip("/") + "/ocr/extract"
+    return admin_api_base.get() + "/ocr/extract"
 
 
 def check_connection(timeout: int = 8) -> dict:
@@ -52,7 +53,7 @@ def check_connection(timeout: int = 8) -> dict:
     server_error. `ok` is True only for 'connected'. This is what lets the CSP
     (and Eko) see 'Connected / OCR ready' or the EXACT problem + fix at a glance,
     instead of finding out only when a scan silently yields 0 rows."""
-    base = (getattr(config, "ADMIN_API_BASE", "") or "").rstrip("/")
+    base = admin_api_base.get()
     csp_id = getattr(config, "ADMIN_CSP_ID", "") or ""
     key = getattr(config, "ADMIN_API_KEY", "") or ""
     out = {"ok": False, "status": "off", "reason": "", "fix": "",
@@ -181,8 +182,15 @@ def extract_file(path: str, file_type: str, page_from: int = None,
         rows = _send_image(blob, timeout, retries)
         if progress:
             progress(1000, 1000, f"Eko OCR read {len(rows)} row(s)")
+        info = {"kb": round(len(blob) / 1024), "dpi": None}
+        try:    # record the image size we sent (helps diagnose 0-row results)
+            from PIL import Image as _I
+            with _I.open(path) as _im:
+                info["w"], info["h"] = _im.width, _im.height
+        except Exception:
+            pass
         return {"xlsx_bytes": rows_to_xlsx_bytes(rows), "page_count": 1,
-                "row_count": len(rows)}
+                "row_count": len(rows), "sent_info": info}
 
     if file_type != "pdf":
         raise ServerOcrError("unsupported file type for server OCR")
@@ -195,6 +203,7 @@ def extract_file(path: str, file_type: str, page_from: int = None,
     scale = dpi / 72.0
     parallel = max(1, int(getattr(config, "SERVER_OCR_PARALLEL", 6)))
     all_rows = []
+    sent_info = None   # what the FIRST page render actually looked like
     with open(path, "rb") as f:
         pdf = pdfium.PdfDocument(f.read())
     try:
@@ -230,6 +239,14 @@ def extract_file(path: str, file_type: str, page_from: int = None,
                     buf = io.BytesIO()
                     pil.convert("RGB").save(buf, format="PNG")
                     pngs.append(buf.getvalue())
+                    # Record WHAT we actually sent for the first page — a tiny or
+                    # blank render is a real failure mode (0 rows come back fast),
+                    # and without this the CSP screen can't tell a bad render from
+                    # a bad scan. Surfaced in the review self-diagnosis banner.
+                    if sent_info is None:
+                        sent_info = {"w": pil.width, "h": pil.height,
+                                     "kb": round(len(pngs[-1]) / 1024),
+                                     "dpi": dpi}
                 finally:
                     try:
                         pil.close()
@@ -251,6 +268,6 @@ def extract_file(path: str, file_type: str, page_from: int = None,
                 progress(int(done / n * 1000), 1000,
                          f"Eko OCR: {done} of {n} pages ({len(all_rows)} rows)")
         return {"xlsx_bytes": rows_to_xlsx_bytes(all_rows), "page_count": n,
-                "row_count": len(all_rows)}
+                "row_count": len(all_rows), "sent_info": sent_info}
     finally:
         pdf.close()

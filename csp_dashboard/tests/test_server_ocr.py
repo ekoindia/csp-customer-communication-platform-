@@ -204,6 +204,44 @@ def test_csp_server_ocr_client_encrypts_document_body(tmp_path, monkeypatch):
     assert xlsx_bytes_to_rows(result["xlsx_bytes"]) == [{"name": "RAMESH KUMAR"}]
 
 
+def test_admin_dashboard_url_is_routed_to_api_v1(tmp_path, monkeypatch):
+    import config
+    from core import server_ocr_client
+
+    path = tmp_path / "scan.png"
+    path.write_bytes(b"scan")
+    monkeypatch.setattr(config, "SERVER_OCR_ENABLED", True)
+    monkeypatch.setattr(config, "ADMIN_API_BASE",
+                        "http://122.176.147.78:8080/csp-admin/login")
+    monkeypatch.setattr(config, "ADMIN_CSP_ID", "CSP777")
+    monkeypatch.setattr(config, "ADMIN_API_KEY", "real-secret-key")
+
+    captured = {}
+
+    from core.ocr_excel import rows_to_xlsx_bytes
+
+    class Resp:
+        status_code = 200
+
+        def json(self):
+            xlsx_b64 = base64.b64encode(rows_to_xlsx_bytes([])).decode("ascii")
+            return {"ok": True, "payload": encrypt_json({
+                "request_id": captured["request_id"],
+                "xlsx_b64": xlsx_b64,
+            }, config.ADMIN_API_KEY)}
+
+    def fake_post(url, json, headers, timeout):
+        captured["url"] = url
+        captured["request_id"] = decrypt_json(json["payload"], config.ADMIN_API_KEY)["request_id"]
+        return Resp()
+
+    monkeypatch.setattr("core.server_ocr_client.requests.post", fake_post)
+    server_ocr_client.extract_file(str(path), "image")
+    assert captured["url"] == (
+        "http://122.176.147.78:8080/csp-admin/api/v1/ocr/extract"
+    )
+
+
 def test_extraction_uses_server_ocr_before_local_image_ocr(tmp_path, monkeypatch):
     from PIL import Image
     from core import extraction
@@ -406,6 +444,20 @@ def test_check_connection_connected(monkeypatch):
     monkeypatch.setattr(s.requests, "get", lambda *a, **k: _FakeResp(200))
     r = s.check_connection()
     assert r["ok"] is True and r["status"] == "connected"
+
+
+def test_check_connection_accepts_admin_dashboard_address(monkeypatch):
+    s = _cfg(monkeypatch, ADMIN_API_BASE="http://host:8080/csp-admin")
+    seen = {}
+
+    def fake_get(url, *a, **k):
+        seen["url"] = url
+        return _FakeResp(200)
+
+    monkeypatch.setattr(s.requests, "get", fake_get)
+    r = s.check_connection()
+    assert r["ok"] is True and r["base"] == "http://host:8080/csp-admin/api/v1"
+    assert seen["url"] == "http://host:8080/csp-admin/api/v1/sync"
 
 
 def test_check_connection_bad_key(monkeypatch):

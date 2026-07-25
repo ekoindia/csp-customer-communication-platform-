@@ -290,7 +290,8 @@ def build_payload() -> dict:
 
 
 def _base() -> str:
-    return getattr(config, "ADMIN_API_BASE", "").rstrip("/")
+    from core import admin_api_base
+    return admin_api_base.get()
 
 
 def report_once() -> dict:

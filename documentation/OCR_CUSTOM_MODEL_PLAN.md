@@ -1,3 +1,8 @@
+> SUPERSEDED (2026-07-21). This custom on-device OCR model plan was abandoned:
+> the model could not run accurately on the 4 GB CSP hardware, and on-device OCR
+> is no longer the approach. See `PROJECT_DOCUMENTATION.md` Section 4 and
+> `documentation/SERVER_OCR_PIPELINE_DESIGN.md`. Kept for history only.
+
 # Custom On-Device OCR — Plan (Phase 3)
 
 *Goal: read the bank's mobile-photo scanned account lists **accurately** on the

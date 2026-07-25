@@ -143,16 +143,26 @@ _RAPIDOCR_MODEL = None
 
 
 def _ensure_tesseract() -> bool:
-    """Point pytesseract at the bundled binary (if any) on first use. Returns
-    False when the binding isn't installed, so callers skip the Tesseract path
-    instead of raising."""
+    """True only if Tesseract is ACTUALLY usable — both the pytesseract binding
+    AND a runnable tesseract binary. Returns False (cached) if either is absent,
+    so every caller skips the Tesseract path instead of raising the classic
+    "tesseract is not installed or it's not in your PATH". This is important on
+    a server-OCR CSP where Tesseract is intentionally not installed: local OCR
+    must degrade quietly, never crash the upload."""
     global _TESSERACT_OK
+    if _TESSERACT_OK is not None:
+        return _TESSERACT_OK
     if pytesseract is None:
+        _TESSERACT_OK = False
         return False
-    if _TESSERACT_OK is None:
+    try:
         import core.ocr  # noqa: F401  (sets pytesseract.tesseract_cmd path)
+        pytesseract.get_tesseract_version()  # verify the BINARY really runs
         _TESSERACT_OK = True
-    return True
+    except Exception:
+        # binding present but binary missing/broken -> treat as unavailable
+        _TESSERACT_OK = False
+    return _TESSERACT_OK
 
 
 def _doctr_model():

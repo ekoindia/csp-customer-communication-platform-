@@ -485,9 +485,19 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
         from core.ocr_excel import xlsx_bytes_to_rows
         rows = xlsx_bytes_to_rows(result.get("xlsx_bytes") or b"")
         if not rows:
-            _diag("Eko server OCR ran but returned 0 rows for this page — the "
-                  "scan may be too faint, rotated, or not a table. Try a clearer/"
-                  "straight scan, or upload the bank Excel/CSV.")
+            # Say exactly WHAT was sent — a tiny/blank render and a genuinely
+            # unreadable scan look identical from the outside otherwise.
+            si = result.get("sent_info") or {}
+            what = ""
+            if si.get("w") and si.get("h"):
+                what = (f" (sent {si['w']}x{si['h']} px, ~{si.get('kb','?')} KB"
+                        + (f", {si['dpi']} DPI" if si.get("dpi") else "") + ")")
+            elif si.get("kb"):
+                what = f" (sent ~{si['kb']} KB)"
+            _diag(f"Eko server OCR ran on {result.get('page_count', '?')} page(s)"
+                  f"{what} but returned 0 rows — the scan is likely too faint, "
+                  f"skewed/rotated, or not a table. Try a clearer, straight scan "
+                  f"(or upload the bank Excel/CSV, which needs no OCR).")
             return None
         if progress:
             progress(900, 1000, f"Eko OCR read {len(rows)} row(s)")
