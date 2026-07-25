@@ -1,6 +1,7 @@
 """Admin portal UI — multi-page, each page one clear job. Read-only monitoring
 of the CSP fleet using only the allow-listed, PII-free data."""
 import hashlib
+import io
 import json
 import os
 import re
@@ -363,6 +364,58 @@ def download_release(release_id, filename):
         return ("not found", 404)
     return send_from_directory(RELEASES_DIR, row["stored_name"],
                                as_attachment=True, download_name=row["filename"])
+
+
+# Dirs/files never shipped to a CSP (server-only, dev-only, secrets, or data).
+# core/models is the big one: ~87 MB of OCR weights the CSP does NOT need
+# (OCR runs on THIS server), and shipping them is what made the GitHub
+# whole-repo zip ~83 MB and unreliable to download on CSP networks.
+_CSP_ZIP_EXCLUDE_DIRS = {
+    "tests", "scripts", "__pycache__", ".venv", ".venv_onnxtr",
+    ".pytest_cache", ".git", ".wa_session", "uploads", "node_modules", "drafts",
+}
+_CSP_ZIP_EXCLUDE_NESTED = {"core/models"}
+_CSP_ZIP_EXCLUDE_FILES = {".env", "secret.key", "pii.key", "csp_platform.db"}
+_CSP_ZIP_EXCLUDE_EXT = {".pyc", ".db"}
+
+
+@ui_bp.route("/download/csp_app.zip")
+def download_csp_app():
+    """PUBLIC: serve a SLIM (~2-3 MB) zip of the CSP app, built on the fly from
+    THIS server's own checkout, with the server-only OCR models and all dev/secret
+    files stripped out.
+
+    Why: CSP_Setup.bat used to pull the ~83 MB GitHub whole-repo zip, most of
+    which is OCR model weights the CSP never needs (OCR runs on this server). On
+    CSP networks that large download from codeload.github.com frequently failed.
+    A small package served from THIS host — the same one the CSP already reaches
+    for /api/v1/ocr/extract — downloads fast and reliably. Not behind
+    login_required: a brand-new CSP has no key yet, and the package carries no
+    customer data."""
+    csp_dir = os.path.join(os.path.dirname(_DIR), "csp_dashboard")
+    if not os.path.isdir(csp_dir):
+        return ("CSP app not found on this server.", 500)
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk(csp_dir):
+            rel = os.path.relpath(root, csp_dir).replace("\\", "/")
+            kept = []
+            for d in dirs:
+                child = d if rel == "." else rel + "/" + d
+                if d in _CSP_ZIP_EXCLUDE_DIRS or child in _CSP_ZIP_EXCLUDE_NESTED:
+                    continue
+                kept.append(d)
+            dirs[:] = kept
+            for f in files:
+                if f in _CSP_ZIP_EXCLUDE_FILES or os.path.splitext(f)[1] in _CSP_ZIP_EXCLUDE_EXT:
+                    continue
+                full = os.path.join(root, f)
+                arc = "csp_dashboard/" + os.path.relpath(full, csp_dir).replace("\\", "/")
+                z.write(full, arc)
+    data = buf.getvalue()
+    return Response(data, mimetype="application/zip",
+                    headers={"Content-Disposition": "attachment; filename=csp_app.zip",
+                             "Content-Length": str(len(data))})
 
 
 @ui_bp.route("/ocr-log")

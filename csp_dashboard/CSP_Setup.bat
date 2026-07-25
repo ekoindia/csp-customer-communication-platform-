@@ -46,14 +46,14 @@ echo (Continuing without administrator rights - you may see a security prompt fo
 echo  each component that installs.)
 :afterelevate
 
-REM GitHub-direct install source: the CSP dashboard lives in a PUBLIC GitHub
-REM repo, and GitHub serves the whole repo as a zip automatically at
-REM  https://github.com/<ORG>/<REPO>/archive/refs/heads/<branch>.zip
-REM So there is NO hand-built CSP_Platform.zip to host/share — just push
-REM csp_dashboard/ to the repo and put its zipball URL below (fill ORG/REPO;
-REM branch is usually "main"). The download step handles the single top folder
-REM GitHub wraps the files in.
-set "APP_URL=https://github.com/ekoindia/csp-customer-communication-platform-/archive/refs/heads/main.zip"
+REM Install source: a SLIM (~2-3 MB) code-only package served by the Eko admin
+REM server itself (the same host the CSP already reaches for OCR). We do NOT use
+REM the GitHub whole-repo zip anymore: it was ~83 MB (mostly server-only OCR
+REM models the CSP doesn't need) and frequently FAILED to download on CSP
+REM networks. The admin route builds this zip on the fly from the server's own
+REM checkout, minus the OCR models / dev / secret files. The download step below
+REM handles the single top folder inside the zip.
+set "APP_URL=http://122.176.147.78:8080/csp-admin/download/csp_app.zip"
 set "CSP_ID=REPLACE-CSP-ID"
 set "API_KEY=REPLACE-API-KEY"
 REM Leave this as the placeholder — the real admin server URL is already baked
