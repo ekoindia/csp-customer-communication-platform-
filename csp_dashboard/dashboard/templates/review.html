@@ -21,6 +21,23 @@
 </nav>
 
 <main class="container-fluid mt-3" style="max-width:1600px">
+  {% if ocr_diag and (rows|length == 0) %}
+  <div class="alert alert-danger py-2 small mb-3">
+    <strong>⚠ The document could not be read — here is exactly why:</strong>
+    <ul class="mb-1 mt-1">
+      {% for note in ocr_diag %}<li>{{ note }}</li>{% endfor %}
+    </ul>
+    Nothing has been created. Fix the issue above (or upload the bank Excel/CSV,
+    which needs no OCR) and try again.
+  </div>
+  {% elif ocr_diag %}
+  <div class="alert alert-warning py-2 small mb-3">
+    <strong>Note while reading this document:</strong>
+    <ul class="mb-0 mt-1">
+      {% for note in ocr_diag %}<li>{{ note }}</li>{% endfor %}
+    </ul>
+  </div>
+  {% endif %}
   <div class="alert alert-warning py-2 small mb-3">
     <strong>Check the data before sending.</strong> The computer reads the scanned page
     automatically, but it can make mistakes. Compare each row with the page image on the

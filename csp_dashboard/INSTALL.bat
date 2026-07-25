@@ -122,9 +122,22 @@ echo Installing app dependencies ...
 "%VPY%" -m pip install --upgrade pip
 "%VPY%" -m pip install -r requirements-lite.txt
 if errorlevel 1 (
-    echo [X] Dependency install failed. Check the internet connection and re-run.
-    pause & exit /b 1
+    echo [!] First dependency attempt failed - retrying once ^(network hiccup?^) ...
+    "%VPY%" -m pip install -r requirements-lite.txt
 )
+REM Self-heal: verify the critical libraries actually IMPORT; if any are missing
+REM (partial/interrupted download), repair with a clean reinstall, then re-verify.
+"%VPY%" -c "import flask,pydantic,openpyxl,pdfplumber,PIL,requests,pypdfium2,numpy,cv2,cryptography" 2>nul
+if errorlevel 1 (
+    echo [!] Some libraries did not install cleanly - repairing ...
+    "%VPY%" -m pip install --no-cache-dir --force-reinstall -r requirements-lite.txt
+    "%VPY%" -c "import flask,pydantic,openpyxl,pdfplumber,PIL,requests,pypdfium2,numpy,cv2,cryptography" 2>nul
+    if errorlevel 1 (
+        echo [X] Dependencies still incomplete after repair. Check the internet and re-run.
+        pause & exit /b 1
+    )
+)
+echo [OK] Dependencies verified ^(all critical libraries import^).
 
 REM ---------- 5. WhatsApp bridge dependencies ----------
 where node >nul 2>&1 && (

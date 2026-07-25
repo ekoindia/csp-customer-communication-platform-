@@ -414,6 +414,7 @@ def review(campaign_id: str, draft_id: str):
         rows=draft["rows"],
         page_images=draft["meta"].get("page_images", []),
         page_span=draft["meta"].get("page_span"),
+        ocr_diag=draft["meta"].get("ocr_diag", []),
     )
 
 

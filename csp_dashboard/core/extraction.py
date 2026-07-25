@@ -85,6 +85,26 @@ def _draft_dir(draft_id: str) -> str:
 
 # ── Build a draft (parse / OCR, no DB writes) ─────────────────────────────────
 
+# ── Extraction self-diagnostics ─────────────────────────────────────────────
+# The single worst failure mode is a SILENT empty draft: OCR yields 0 rows and
+# the review screen just shows nothing, with no hint why (server unreachable?
+# bad key? scan too poor? typed-PDF with no table?). These notes are collected
+# during a build_draft run and written into the draft's meta so the review
+# screen can tell the CSP EXACTLY what happened instead of a blank table.
+_DIAG: List[str] = []
+
+
+def _diag_reset() -> None:
+    _DIAG.clear()
+
+
+def _diag(msg: str) -> None:
+    # De-dupe identical notes (per-page failures repeat the same reason).
+    if msg and msg not in _DIAG:
+        _DIAG.append(msg)
+    print(f"[extract-diag] {msg}")
+
+
 def build_draft(file_paths: List[str], campaign_id: str,
                 original_names: List[str],
                 page_from: int = None, page_to: int = None,
@@ -99,6 +119,7 @@ def build_draft(file_paths: List[str], campaign_id: str,
     progress bar (see core/jobs.py). None = run silently (tests, direct calls).
     """
     _purge_stale_drafts()
+    _diag_reset()
     draft_id = uuid.uuid4().hex
     ddir = _draft_dir(draft_id)
     os.makedirs(ddir, exist_ok=True)
@@ -129,16 +150,36 @@ def build_draft(file_paths: List[str], campaign_id: str,
                 progress(1, 1, "File read")
 
         if not raw_rows:
+            # Self-diagnose: say WHY this file yielded nothing, per format.
+            if fmt in ("pdf", "image"):
+                _diag(f"No rows read from the {fmt.upper()} (OCR found no table "
+                      f"rows). If this is a scan, check the Eko OCR reason above; "
+                      f"if it is a data sheet, upload the Excel/CSV instead.")
+            else:
+                _diag("No rows found in the uploaded file (empty or unrecognised "
+                      "layout).")
             continue
+        # Format-agnostic: map the canonical fields we NEED (account/name/mobile/
+        # band) wherever they appear, but ALSO carry every original column so the
+        # review shows exactly what was in the document — no fixed-schema drop.
         mapping = map_columns(list(raw_rows[0].keys()))
         for raw in raw_rows:
-            rows.append(_preview_row(extract_row(raw, mapping)))
+            prow = _preview_row(extract_row(raw, mapping))
+            prow["_all"] = {str(k): ("" if v is None else str(v))
+                            for k, v in raw.items()}
+            rows.append(prow)
+
+    if not rows:
+        _diag("Draft is empty — nothing was extracted. See the reason(s) above. "
+              "Nothing has been created; you can fix the input and re-upload.")
 
     meta = {
         "campaign_id": campaign_id,
         "original_names": original_names,
         "page_images": [os.path.basename(p) for p in page_images],
         "page_span": page_span,   # {"from":x,"to":y,"total":n} or None
+        "row_count": len(rows),
+        "ocr_diag": list(_DIAG),   # human-readable reasons shown on the review screen
     }
     with open(os.path.join(ddir, "meta.json"), "w", encoding="utf-8") as f:
         json.dump(meta, f)
@@ -358,6 +399,21 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
     try:
         from core import server_ocr_client
         if not server_ocr_client.enabled():
+            # If the CSP MEANT to use server OCR (flag on) but it's not usable,
+            # say why — otherwise this is just normal local-OCR mode.
+            import config as _cfg
+            if getattr(_cfg, "SERVER_OCR_ENABLED", False):
+                reasons = []
+                if not getattr(_cfg, "ADMIN_API_BASE", ""):
+                    reasons.append("no server address")
+                if not getattr(_cfg, "ADMIN_CSP_ID", ""):
+                    reasons.append("no CSP ID")
+                key = getattr(_cfg, "ADMIN_API_KEY", "")
+                if not key or key == "demo-key-CSP001":
+                    reasons.append("no/placeholder API key")
+                _diag("Eko server OCR is ON but not usable ("
+                      + (", ".join(reasons) or "connection not configured")
+                      + ") — check the CSP's .env / API key.")
             return None
         if progress:
             progress(0, 1000, "Sending scan to Eko OCR service...")
@@ -369,6 +425,9 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
         from core.ocr_excel import xlsx_bytes_to_rows
         rows = xlsx_bytes_to_rows(result.get("xlsx_bytes") or b"")
         if not rows:
+            _diag("Eko server OCR ran but returned 0 rows for this page — the "
+                  "scan may be too faint, rotated, or not a table. Try a clearer/"
+                  "straight scan, or upload the bank Excel/CSV.")
             return None
         if progress:
             progress(900, 1000, f"Eko OCR read {len(rows)} row(s)")
@@ -379,7 +438,8 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
                     "total": result.get("page_count") or page_to or page_from or 1}
         return rows, span
     except Exception as e:  # noqa: BLE001 - centralized OCR is optional fallback
-        print(f"[server-ocr] falling back to local OCR: {e}")
+        _diag(f"Eko server OCR call failed: {e}. Fell back to local OCR "
+              f"(which is not installed on a server-OCR CSP, so 0 rows).")
         if progress:
             progress(0, 1000, "Server OCR unavailable; using local OCR...")
         return None

@@ -120,3 +120,37 @@ def test_commit_keeps_unreadable_band_flagged(db, tmp_path, monkeypatch):
     cases = queries.list_cases_by_batch(batch_id)
     assert len(cases) == 1
     assert cases[0]["balance_band"] == "garbage"   # raw sheet value preserved
+
+
+def test_empty_upload_records_selfdiagnosis(db, tmp_path, monkeypatch):
+    """Self-diagnosing: a file that yields 0 rows must NOT be a silent empty
+    draft — the meta carries a human-readable reason for the review screen."""
+    monkeypatch.setattr(config, "UPLOAD_FOLDER", str(tmp_path / "up"))
+    os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+    path = _csv(tmp_path, "Account Number,Name,Mobile,Balance Band\n")  # headers only
+    draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
+    draft = extraction.load_draft(draft_id)
+    assert draft["meta"]["row_count"] == 0
+    assert draft["meta"]["ocr_diag"], "0-row draft must record WHY (no silent empty)"
+    extraction.discard_draft(draft_id)
+
+
+def test_format_agnostic_carries_all_columns(db, tmp_path, monkeypatch):
+    """Format-agnostic: a sheet with an unusual layout (Sanjeev-style headers +
+    extra columns) still yields rows, maps the essentials, and carries EVERY
+    original column so nothing in the document is dropped."""
+    monkeypatch.setattr(config, "UPLOAD_FOLDER", str(tmp_path / "up"))
+    os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+    path = _csv(tmp_path,
+        "BRANCH_NAME,ACNO,NAME,FTHR_NM,MOBILE_NBR,VILLAGE,ADDRESS_WITH_PIN\n"
+        "SAMPLEBR,99990000001,TEST KUMAR,RAM,9990000007,Testpur,VILL-X DIST-Y\n")
+    draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
+    rows = extraction.load_draft(draft_id)["rows"]
+    assert len(rows) == 1
+    assert rows[0]["account_number"] == "99990000001"   # ACNO mapped
+    assert rows[0]["name"] == "TEST KUMAR"              # NAME (not BRANCH_NAME)
+    assert rows[0]["mobile"] == "9990000007"            # MOBILE_NBR mapped
+    # every original column preserved for display, incl. ones we don't map
+    assert rows[0]["_all"]["ADDRESS_WITH_PIN"] == "VILL-X DIST-Y"
+    assert rows[0]["_all"]["BRANCH_NAME"] == "SAMPLEBR"
+    extraction.discard_draft(draft_id)
