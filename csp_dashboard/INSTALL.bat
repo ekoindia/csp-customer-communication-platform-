@@ -113,11 +113,33 @@ call :ensure_node
 where node >nul 2>&1 && (echo [OK] Node.js ready.) || (echo [!] Node.js not set up - WhatsApp sending can be enabled later; the dashboard still runs without it.)
 
 REM ---------- 4. App environment + Python dependencies ----------
-if not exist ".venv\Scripts\python.exe" (
+REM Self-heal a BROKEN environment. A half-finished delete (or an interrupted
+REM install) can leave .venv\Scripts\python.exe present but pyvenv.cfg missing —
+REM then EVERY pip call dies with "No pyvenv.cfg file" and the whole dependency
+REM step fails while looking like a network problem. So don't just check that the
+REM file exists: check the interpreter actually RUNS, and rebuild it if not.
+set "VPY=.venv\Scripts\python.exe"
+set "VENV_OK="
+if exist "%VPY%" "%VPY%" -c "import sys" >nul 2>&1 && set "VENV_OK=1"
+if not defined VENV_OK (
+    if exist ".venv" (
+        echo Existing app environment is broken - rebuilding it ...
+        REM Nothing may hold the files: stop the app/bridge first so the delete
+        REM can't fail on a locked .pyd/.dll (the usual cause).
+        taskkill /F /IM pythonw.exe >nul 2>&1
+        taskkill /F /IM python.exe  >nul 2>&1
+        taskkill /F /IM node.exe    >nul 2>&1
+        rmdir /s /q ".venv" 2>nul
+    )
     echo Creating the app environment ...
     "%PY%" -m venv .venv
+    "%VPY%" -c "import sys" >nul 2>&1 && set "VENV_OK=1"
 )
-set "VPY=.venv\Scripts\python.exe"
+if not defined VENV_OK (
+    echo [X] Could not create the app environment at "%INSTALL_DIR%\.venv".
+    echo     Close any open CSP Platform window and run this installer again.
+    pause & exit /b 1
+)
 echo Installing app dependencies ...
 "%VPY%" -m pip install --upgrade pip
 "%VPY%" -m pip install -r requirements-lite.txt

@@ -107,6 +107,12 @@ REM the new code. The CSP's DATA is kept: cases database, encryption keys, and
 REM WhatsApp login. The Eko connection (.env) is ALWAYS rewritten below with the
 REM fresh key, so a re-issued key takes effect and the old (revoked) key is gone.
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
+REM Stop a running dashboard / WhatsApp bridge FIRST, so no file is locked while
+REM we replace the program files (a locked .pyd is what leaves a half-updated,
+REM broken install behind).
+taskkill /F /IM pythonw.exe >nul 2>&1
+taskkill /F /IM python.exe  >nul 2>&1
+taskkill /F /IM node.exe    >nul 2>&1
 echo Installing a FRESH copy (old program files replaced; your data + WhatsApp login kept) ...
 REM Remove stale compiled bytecode so a renamed/removed module can't shadow new code.
 for /d /r "%INSTALL_DIR%" %%d in (__pycache__) do if exist "%%d" rmdir /s /q "%%d" 2>nul
