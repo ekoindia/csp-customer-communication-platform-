@@ -284,6 +284,45 @@ def _ocr_pdf(path: str, ddir: str, start_idx: int,
             pdf.close()
         return rows, images, span
 
+    # Server-OCR CLIENT self-heal: if we reach here, server OCR did NOT return
+    # rows (the reason is already in _DIAG). Do NOT attempt LOCAL OCR — this
+    # build ships no local OCR engine and the local path's memory valve would
+    # HARD-CRASH a low-RAM box ("Could not read the document"). Instead render a
+    # light source preview (best effort) and return 0 rows so the review screen
+    # shows the clear self-diagnosis banner instead of a crash.
+    import config as _cfg
+    if getattr(_cfg, "SERVER_OCR_ENABLED", False):
+        _diag("Not running local OCR (this is a server-OCR install). Fix the Eko "
+              "server reason above, or upload the bank Excel/CSV.")
+        images: List[str] = []
+        try:
+            import gc
+            import pypdfium2 as pdfium
+            pdf = pdfium.PdfDocument(path)
+            try:
+                total = len(pdf)
+                lo = max(1, page_from or 1)
+                hi = min(total, page_to or total)
+                if lo > hi:
+                    lo, hi = 1, total
+                for pno in range(lo - 1, hi):
+                    page = pdf[pno]
+                    bmp = page.render(scale=1200 / 842)
+                    pil = bmp.to_pil()
+                    try:
+                        images.append(_save_page(pil, ddir, start_idx + len(images)))
+                    finally:
+                        try:
+                            pil.close(); bmp.close(); page.close()
+                        except Exception:
+                            pass
+                        gc.collect()
+            finally:
+                pdf.close()
+        except Exception as e:  # low RAM etc. — the banner still explains the OCR reason
+            _diag(f"(source preview could not be rendered: {e})")
+        return [], images, None
+
     from core.ocr_table import extract_with_image
     import pypdfium2 as pdfium
 
@@ -374,6 +413,27 @@ def _ocr_image(path: str, ddir: str, start_idx: int):
                 img.close()
             except Exception:
                 pass
+    # Server-OCR CLIENT self-heal: server OCR returned nothing (reason in _DIAG).
+    # Do NOT run local OCR (no engine here; crashes a low-RAM box) — keep a light
+    # source copy for the review and return 0 rows so the banner shows the reason.
+    import config as _cfg
+    if getattr(_cfg, "SERVER_OCR_ENABLED", False):
+        _diag("Not running local OCR (this is a server-OCR install). Fix the Eko "
+              "server reason above, or upload the bank Excel/CSV.")
+        imgs = []
+        try:
+            Image.MAX_IMAGE_PIXELS = OCR_MAX_IMAGE_PIXELS
+            _img = _downscale_for_ocr(Image.open(path))
+            try:
+                imgs = [_save_page(_img, ddir, start_idx)]
+            finally:
+                try:
+                    _img.close()
+                except Exception:
+                    pass
+        except Exception as e:
+            _diag(f"(source preview could not be rendered: {e})")
+        return [], imgs
     # Reject decompression-bomb images and check free RAM before decoding a
     # potentially large user-supplied image on the 4 GB box.
     Image.MAX_IMAGE_PIXELS = OCR_MAX_IMAGE_PIXELS
