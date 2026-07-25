@@ -202,6 +202,21 @@ def extract_file(path: str, file_type: str, page_from: int = None,
     dpi = int(getattr(config, "SERVER_OCR_RENDER_DPI", 300))
     scale = dpi / 72.0
     parallel = max(1, int(getattr(config, "SERVER_OCR_PARALLEL", 6)))
+    # RAM-adaptive parallelism (self-healing): each in-flight page is a full
+    # 300-DPI raster (~25 MB raw + PNG buffer). Six at once is fine on a big box
+    # but can exhaust a 4 GB CSP PC that only has a few hundred MB free — the
+    # render then fails or thrashes and pages come back empty. Keep the DPI
+    # (accuracy) and reduce how many pages are in flight instead.
+    try:
+        from core import hardware
+        free = hardware.available_ram_gb()
+        total = hardware.total_ram_gb()
+        if total < 6 or free < 1.5:
+            parallel = min(parallel, 2)
+        if free < 0.8:
+            parallel = 1
+    except Exception:
+        parallel = min(parallel, 2)   # can't measure -> stay conservative
     all_rows = []
     sent_info = None   # what the FIRST page render actually looked like
     with open(path, "rb") as f:
