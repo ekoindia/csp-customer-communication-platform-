@@ -34,6 +34,19 @@ def test_extract_row_bandless_format():
     assert "balance_band" not in row
 
 
+def test_name_not_stolen_by_branch_name():
+    # A real bank export (Sanjeev's format) has BRANCH_NAME / DIST_NAME / NAME.
+    # The customer "NAME" must win over columns that merely CONTAIN "name".
+    headers = ["BRANCH_NAME", "BC_CODE", "CSP_CODE", "ACNO", "NAME", "FTHR_NM",
+               "STATE_NAME", "DISTNAME", "TALUKA", "VILLAGE", "INOPERATIVE_FLAG",
+               "ADDRESS_WITH_PIN"]
+    m = map_columns(headers)
+    assert m["account_number"] == "ACNO"      # "acno" alias
+    assert m["name"] == "NAME"                # exact wins over BRANCH_NAME/DISTNAME
+    assert "mobile" not in m                   # this export has no mobile column
+    assert "balance_band" not in m            # and no balance band
+
+
 def test_standard_account_no_header_still_maps():
     # Regression: the original "Account No" header must keep working.
     m = map_columns(["Account No", "Name", "Balance Band", "Mobile"])

@@ -37,6 +37,14 @@ def map_columns(raw_headers: list) -> dict:
     """
     Returns {internal_field: raw_header} for each field we can match.
     Unmatched fields are absent from the returned dict.
+
+    Two passes so an EXACT header wins over one that merely CONTAINS the keyword:
+    a real bank export has both "NAME" (the customer) and "BRANCH_NAME" /
+    "DIST_NAME" / "STATE_NAME" — a naive substring match on "name" would grab
+    whichever column comes first (often BRANCH_NAME), mislabelling the branch as
+    the customer. Pass 1 takes only exact header==alias matches; pass 2 does the
+    forgiving substring match for anything still unmapped (e.g. "Account Number"
+    -> "account", "Mobile No" -> "mobile").
     """
     mapping = {}
     used = set()  # a raw header, once claimed, can't be reused by a later field
@@ -44,7 +52,20 @@ def map_columns(raw_headers: list) -> dict:
     # OCR'd header like "A/C  No" (double space) still matches the "a/c no" alias.
     lowered = {h: " ".join(h.lower().split()) for h in raw_headers if h}
 
+    # Pass 1: exact header == alias (precise, wins over substring).
     for field, keywords in _FIELD_KEYWORDS.items():
+        for raw, low in lowered.items():
+            if raw in used:
+                continue
+            if low in keywords:
+                mapping[field] = raw
+                used.add(raw)
+                break
+
+    # Pass 2: substring match for fields still unmapped.
+    for field, keywords in _FIELD_KEYWORDS.items():
+        if field in mapping:
+            continue
         for raw, low in lowered.items():
             if raw in used:
                 continue
