@@ -182,3 +182,66 @@ def test_queue_and_dispatch_no_candidates_and_none_queued_fails_clearly(db):
     result = approval.queue_and_dispatch(batch_id, chunk_size=None)
     assert result["started"] is False
     assert "awaiting a send decision" in result["reason"]
+
+
+# ── Retry after a FAILED send ────────────────────────────────────────────────
+# A WhatsApp/SMS failure must not strand a case forever: the CSP has to be able
+# to approve it again (after fixing the number, reconnecting WhatsApp, or a
+# transient network error). The failed attempt stays in the history.
+
+def _fail_case(case_id, status="wa_failed"):
+    """Queue a case and mark its attempt as failed, like a real failure would."""
+    approval.approve_case(case_id)
+    attempt = queries.get_latest_comm_attempt(case_id)
+    queries.update_comm_status(attempt["id"], status, "simulated failure")
+    return attempt["id"]
+
+
+@pytest.mark.parametrize("status", ["wa_failed", "sms_failed", "escalated"])
+def test_failed_case_can_be_approved_again(db, status):
+    batch_id, case_ids = _setup_batch(db, n=1)
+    cid = case_ids[0]
+    failed_id = _fail_case(cid, status)
+
+    res = approval.approve_case(cid)
+    assert res["ok"] is True
+    assert res.get("retry") is True
+
+    # a NEW pending attempt exists, and the failed one is still in the history
+    attempts = queries.list_comm_attempts_for_case(cid)
+    assert len(attempts) == 2
+    assert attempts[0]["id"] == failed_id and attempts[0]["status"] == status
+    assert attempts[-1]["status"] == "pending"
+
+    # and the dispatch queue picks it up again (latest attempt is pending)
+    assert cid in [c["case_id"] for c in queries.list_dispatch_queue(batch_id)]
+
+
+def test_retry_clears_escalation_flag(db):
+    batch_id, case_ids = _setup_batch(db, n=1)
+    cid = case_ids[0]
+    _fail_case(cid, "escalated")
+    queries.set_escalated(cid, True)
+    assert queries.list_escalations(batch_id)
+
+    approval.approve_case(cid)
+    # while the retry is in flight it is no longer "needs a manual visit"
+    assert not queries.list_escalations(batch_id)
+
+
+def test_pending_or_sent_case_is_not_requeued(db):
+    """Only FAILED cases are retryable — never double-send an in-flight or
+    already-delivered case."""
+    batch_id, case_ids = _setup_batch(db, n=2)
+    pending_cid, sent_cid = case_ids
+
+    approval.approve_case(pending_cid)                 # still pending
+    res = approval.approve_case(pending_cid)
+    assert res["ok"] is False
+
+    approval.approve_case(sent_cid)
+    a = queries.get_latest_comm_attempt(sent_cid)
+    queries.update_comm_status(a["id"], "wa_delivered")
+    res = approval.approve_case(sent_cid)
+    assert res["ok"] is False
+    assert len(queries.list_comm_attempts_for_case(sent_cid)) == 1

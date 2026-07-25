@@ -32,6 +32,11 @@ from core import comm_runner
 from core.message_engine import queue_for_dispatch, generate_single_message
 from database import queries
 
+# Terminal FAILURE states a case can be re-approved (retried) from. Anything
+# else — pending / attempted / delivered / read — is either still in flight or
+# already succeeded, and must NOT be re-queued (that would double-send).
+RETRYABLE_STATUSES = ("wa_failed", "sms_failed", "escalated")
+
 
 def queue_and_dispatch(batch_id: str, chunk_size: int = None) -> dict:
     """
@@ -83,11 +88,25 @@ def approve_case(case_id: str) -> dict:
     if not (case["mobile"] or "").strip():
         return {"ok": False, "reason": "This case has no mobile number and cannot be sent."}
 
-    if queries.get_latest_comm_attempt(case_id):
+    latest = queries.get_latest_comm_attempt(case_id)
+    if latest and latest["status"] not in RETRYABLE_STATUSES:
         return {"ok": False, "reason": "This case has already been queued or sent."}
 
     if not queries.get_message(case_id):
         generate_single_message(case_id)
+
+    if latest:
+        # RETRY of a case whose sending FAILED (WhatsApp failed, SMS failed, or it
+        # was escalated). A CSP must be able to try again after fixing the cause —
+        # correcting a wrong mobile number, reconnecting WhatsApp, or simply a
+        # transient network failure — otherwise a failed case is stuck forever
+        # with no way back into the send flow. A NEW pending attempt is queued
+        # (the failed one stays in the case's history), and the "needs a manual
+        # visit" escalation flag is cleared while this retry is in flight; if it
+        # fails again the runner/webhook sets it right back.
+        queue_for_dispatch(case_id, retry=True)
+        queries.set_escalated(case_id, False)
+        return {"ok": True, "case_id": case_id, "retry": True}
 
     queue_for_dispatch(case_id)
     return {"ok": True, "case_id": case_id}

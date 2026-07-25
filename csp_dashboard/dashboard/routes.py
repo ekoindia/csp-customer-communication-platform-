@@ -571,9 +571,14 @@ def case_detail(campaign_id: str, case_id: str):
     # re-add PII to a closed/purged case). To fix a genuinely wrong row, the CSP
     # deletes the batch and re-uploads.
     can_edit = False
-    # Approval is a SEND action, not a data edit: still allowed while the case
-    # has a mobile and has not been queued/sent yet (mirrors approval.approve_case).
-    can_approve = bool((case["mobile"] or "").strip()) and len(attempts) == 0
+    # Approval is a SEND action, not a data edit: allowed while the case has a
+    # mobile AND is either not yet queued, or its last attempt FAILED — a failed
+    # case must be retryable (mirrors approval.approve_case / RETRYABLE_STATUSES),
+    # otherwise a WhatsApp failure would strand it forever.
+    from core.approval import RETRYABLE_STATUSES
+    last_status = attempts[-1]["status"] if attempts else None   # oldest-first list
+    is_retry = last_status in RETRYABLE_STATUSES
+    can_approve = bool((case["mobile"] or "").strip()) and (not attempts or is_retry)
 
     # Prev/next in the SAME order as the Cases table, so the arrow keys walk
     # the batch exactly as the CSP sees the list.
@@ -598,6 +603,8 @@ def case_detail(campaign_id: str, case_id: str):
         tracking=tracking,
         attempts=attempts,
         can_approve=can_approve,
+        is_retry=is_retry,
+        last_status=last_status,
         can_edit=can_edit,
         from_sheet=from_sheet,
         prev_id=prev_id,
@@ -1027,7 +1034,11 @@ def approve_case(case_id: str):
     if not result["ok"]:
         return jsonify(result), 404
 
-    insert_audit_log(session["user_id"], "case_approved", f"case={case_id}")
+    # Distinguish a RETRY of a failed case from a first-time approval in the audit
+    # trail — "who re-sent what, and when" is exactly what an audit needs to show.
+    insert_audit_log(session["user_id"],
+                     "case_retry_approved" if result.get("retry") else "case_approved",
+                     f"case={case_id}")
     return jsonify(result)
 
 

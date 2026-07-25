@@ -96,7 +96,7 @@ def generate_single_message(case_id: str) -> dict:
     return messages
 
 
-def queue_for_dispatch(case_id: str):
+def queue_for_dispatch(case_id: str, retry: bool = False):
     """
     Create the initial 'pending' communication_attempt for a case, so the
     dispatch runner will pick it up. This is the ONE moment a case becomes
@@ -104,9 +104,14 @@ def queue_for_dispatch(case_id: str):
     an explicit CSP action (automatic batch queue, individual approve, or
     bulk approve-remaining). Never called automatically at message-generation
     time.
+
+    Set retry=True to queue a case that was ALREADY tried and FAILED: a NEW
+    'pending' attempt is inserted instead of being skipped, so the dispatch
+    queue (which looks at each case's LATEST attempt) picks it up again while
+    the earlier failed attempt stays in the history.
     """
     existing = queries.get_latest_comm_attempt(case_id)
-    if not existing:
+    if not existing or retry:
         queries.insert_comm_attempt(case_id, "whatsapp", "pending")
 
 
