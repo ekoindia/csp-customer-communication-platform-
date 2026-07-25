@@ -371,3 +371,54 @@ def test_ocr_log_page_renders_and_shows_metrics_only(admin_client, monkeypatch):
     assert "RAMESH" not in html        # customer PII must never appear
     assert "9876543210" not in html
     assert "123456789012" not in html
+
+
+# ── Proactive server-connection self-diagnosis (check_connection) ──────────────
+class _FakeResp:
+    def __init__(self, status_code): self.status_code = status_code
+
+
+def _cfg(monkeypatch, **kw):
+    import config
+    from core import server_ocr_client
+    defaults = dict(SERVER_OCR_ENABLED=True, ADMIN_API_BASE="http://x/api/v1",
+                    ADMIN_CSP_ID="CSP9", ADMIN_API_KEY="realkey1234")
+    defaults.update(kw)
+    for k, v in defaults.items():
+        monkeypatch.setattr(config, k, v, raising=False)
+    return server_ocr_client
+
+
+def test_check_connection_off(monkeypatch):
+    s = _cfg(monkeypatch, SERVER_OCR_ENABLED=False)
+    r = s.check_connection()
+    assert r["ok"] is False and r["status"] == "off"
+
+
+def test_check_connection_not_configured(monkeypatch):
+    s = _cfg(monkeypatch, ADMIN_API_KEY="demo-key-CSP001")
+    r = s.check_connection()
+    assert r["ok"] is False and r["status"] == "not_configured"
+
+
+def test_check_connection_connected(monkeypatch):
+    s = _cfg(monkeypatch)
+    monkeypatch.setattr(s.requests, "get", lambda *a, **k: _FakeResp(200))
+    r = s.check_connection()
+    assert r["ok"] is True and r["status"] == "connected"
+
+
+def test_check_connection_bad_key(monkeypatch):
+    s = _cfg(monkeypatch)
+    monkeypatch.setattr(s.requests, "get", lambda *a, **k: _FakeResp(401))
+    r = s.check_connection()
+    assert r["ok"] is False and r["status"] == "bad_key" and r["fix"]
+
+
+def test_check_connection_unreachable(monkeypatch):
+    s = _cfg(monkeypatch)
+    def _boom(*a, **k):
+        raise s.requests.RequestException("no route")
+    monkeypatch.setattr(s.requests, "get", _boom)
+    r = s.check_connection()
+    assert r["ok"] is False and r["status"] == "unreachable"

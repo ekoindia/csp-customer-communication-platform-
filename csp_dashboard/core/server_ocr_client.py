@@ -43,6 +43,60 @@ def _endpoint() -> str:
     return getattr(config, "ADMIN_API_BASE", "").rstrip("/") + "/ocr/extract"
 
 
+def check_connection(timeout: int = 8) -> dict:
+    """Proactively self-diagnose the Eko server link — WITHOUT needing an upload.
+
+    Returns a dict the dashboard shows as a live status chip:
+      {ok, status, reason, fix, key_last4, base}
+    status is one of: connected | off | not_configured | unreachable | bad_key |
+    server_error. `ok` is True only for 'connected'. This is what lets the CSP
+    (and Eko) see 'Connected / OCR ready' or the EXACT problem + fix at a glance,
+    instead of finding out only when a scan silently yields 0 rows."""
+    base = (getattr(config, "ADMIN_API_BASE", "") or "").rstrip("/")
+    csp_id = getattr(config, "ADMIN_CSP_ID", "") or ""
+    key = getattr(config, "ADMIN_API_KEY", "") or ""
+    out = {"ok": False, "status": "off", "reason": "", "fix": "",
+           "key_last4": (key[-4:] if key else ""), "base": base}
+    if not getattr(config, "SERVER_OCR_ENABLED", False):
+        out.update(status="off",
+                   reason="Server OCR is turned OFF for this install.",
+                   fix="Re-run this CSP's CSP_Setup.bat (it turns it on).")
+        return out
+    if not base or not csp_id or not key or key == "demo-key-CSP001":
+        missing = []
+        if not base:
+            missing.append("server address")
+        if not csp_id:
+            missing.append("CSP ID")
+        if not key or key == "demo-key-CSP001":
+            missing.append("API key")
+        out.update(status="not_configured",
+                   reason="Eko connection not configured (" + ", ".join(missing) + ").",
+                   fix="Re-download and run this CSP's CSP_Setup.bat — it bakes the key in.")
+        return out
+    try:
+        r = requests.get(base + "/sync", params={"csp_id": csp_id},
+                         headers={"X-API-Key": key}, timeout=timeout)
+    except requests.RequestException as e:
+        out.update(status="unreachable",
+                   reason=f"Cannot reach the Eko server ({e}).",
+                   fix=f"Check the internet connection. Server: {base}")
+        return out
+    if r.status_code == 200:
+        out.update(ok=True, status="connected",
+                   reason=f"Connected to Eko · key …{key[-4:]} valid · OCR ready.",
+                   fix="")
+    elif r.status_code in (401, 403):
+        out.update(status="bad_key",
+                   reason="The Eko server REJECTED this CSP's API key (revoked or wrong).",
+                   fix="Ask Eko to issue a fresh key, then re-run this CSP's CSP_Setup.bat.")
+    else:
+        out.update(status="server_error",
+                   reason=f"Eko server returned HTTP {r.status_code}.",
+                   fix="Try again shortly; if it persists, inform Eko.")
+    return out
+
+
 def _send_image(img_bytes: bytes, timeout: int, retries: int) -> list:
     """Send ONE page image to the server and return its extracted rows.
     Retries transient/5xx/busy failures, then raises ServerOcrError."""

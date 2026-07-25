@@ -829,9 +829,19 @@ def channel_status():
     sms_configured = bool(config.MSG91_AUTH_KEY)
     sms_detail = "configured" if sms_configured else "not configured (fallback disabled)"
 
+    # Eko server (centralized OCR) — proactively self-diagnose the link so the
+    # CSP sees "connected / OCR ready" or the exact problem BEFORE uploading.
+    try:
+        from core import server_ocr_client
+        eko = server_ocr_client.check_connection()
+    except Exception as e:  # noqa: BLE001 - status must never crash the page
+        eko = {"ok": False, "status": "error", "reason": f"status check failed: {e}",
+               "fix": "", "key_last4": "", "base": ""}
+
     return jsonify({
         "whatsapp": {"ready": wa_ready, "detail": wa_detail},
         "sms": {"configured": sms_configured, "detail": sms_detail},
+        "eko": eko,
     })
 
 

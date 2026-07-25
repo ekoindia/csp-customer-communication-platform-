@@ -587,7 +587,15 @@
                 <span class="fw-semibold">SMS (MSG91)</span>
                 <span id="smsStatus" class="badge bg-secondary">checking...</span>
               </div>
-              <div class="text-muted small" id="smsDetail">-</div>
+              <div class="text-muted small mb-3" id="smsDetail">-</div>
+
+              <!-- Eko OCR server: proactive connection self-diagnosis -->
+              <div class="d-flex align-items-center justify-content-between border-bottom py-2">
+                <span class="fw-semibold">Eko OCR Server</span>
+                <span id="ekoStatus" class="badge bg-secondary">checking...</span>
+              </div>
+              <div class="text-muted small" id="ekoDetail">-</div>
+              <div id="ekoFix" class="alert alert-warning small py-2 mt-2 mb-0 d-none"></div>
             </div>
           </div>
 
@@ -996,6 +1004,21 @@ function loadChannelStatus() {
       sms.textContent = s.sms.configured ? "Configured" : "Not configured";
       sms.className = "badge " + (s.sms.configured ? "bg-success" : "bg-secondary");
       document.getElementById("smsDetail").textContent = s.sms.detail;
+
+      // Eko OCR server — proactive self-diagnosis (connected / exact problem + fix)
+      const eko = s.eko || {};
+      const ekoBadge = document.getElementById("ekoStatus");
+      const labels = {connected:"Connected · OCR ready", off:"Off",
+                      not_configured:"Not configured", unreachable:"Unreachable",
+                      bad_key:"Key rejected", server_error:"Server error",
+                      error:"Error"};
+      ekoBadge.textContent = labels[eko.status] || (eko.ok ? "Connected" : "Problem");
+      ekoBadge.className = "badge " + (eko.ok ? "bg-success"
+                          : (eko.status === "off" ? "bg-secondary" : "bg-danger"));
+      document.getElementById("ekoDetail").textContent = eko.reason || "-";
+      const fixBox = document.getElementById("ekoFix");
+      if (!eko.ok && eko.fix) { fixBox.textContent = "How to fix: " + eko.fix; fixBox.classList.remove("d-none"); }
+      else { fixBox.classList.add("d-none"); }
     })
     .catch(() => {
       document.getElementById("waDetail").textContent = "status check failed";
