@@ -76,3 +76,57 @@ def test_genuine_visit_counted(seeded_case):
     ov = queries.batch_overview("B_TEST")
     assert ov["visited"] == 1
     assert len(queries.list_visit_log("B_TEST")) == 1
+
+
+# ── Case outcome / feedback (what the bank needs back) ───────────────────────
+
+def test_close_with_outcome_records_reason(seeded_case):
+    """Closing with "account holder has died" must store the reason in the SAME
+    action — that is the whole point for the bank."""
+    from core import tracking
+    case_id = seeded_case
+    r = tracking.transition(case_id, "case_closed",
+                            outcome="deceased", note="family informed at branch")
+    assert r["ok"] is True
+    bt = queries.get_business_tracking(case_id)
+    assert bt["status"] == "case_closed"
+    assert bt["outcome"] == "deceased"
+    assert bt["outcome_note"] == "family informed at branch"
+
+
+def test_outcome_survives_pii_purge(seeded_case):
+    """The PII purge on closure must NOT wipe the outcome — a report still has to
+    explain what happened."""
+    from core import tracking
+    case_id = seeded_case
+    tracking.transition(case_id, "case_closed", outcome="moved_away")
+    case = queries.get_case(case_id)
+    assert case["name"] is None                      # PII purged
+    assert queries.get_business_tracking(case_id)["outcome"] == "moved_away"
+
+
+def test_outcome_editable_after_closure(seeded_case):
+    """A CSP usually learns the reason later, so it must be correctable even on a
+    closed case."""
+    from core import tracking
+    case_id = seeded_case
+    tracking.transition(case_id, "case_closed", outcome="other", note="unclear")
+    r = tracking.set_outcome(case_id, outcome="deceased", note="confirmed by family")
+    assert r["ok"] is True
+    bt = queries.get_business_tracking(case_id)
+    assert bt["outcome"] == "deceased" and bt["outcome_note"] == "confirmed by family"
+
+
+def test_unknown_outcome_rejected_and_status_unchanged(seeded_case):
+    from core import tracking
+    case_id = seeded_case
+    r = tracking.transition(case_id, "case_closed", outcome="not-a-code")
+    assert r["ok"] is False
+    assert queries.get_business_tracking(case_id)["status"] == "pending"
+
+
+def test_outcome_note_is_length_capped(seeded_case):
+    from core import tracking
+    case_id = seeded_case
+    tracking.set_outcome(case_id, outcome="other", note="x" * 500)
+    assert len(queries.get_business_tracking(case_id)["outcome_note"]) == 200

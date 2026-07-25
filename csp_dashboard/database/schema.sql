@@ -153,6 +153,13 @@ CREATE TABLE IF NOT EXISTS business_tracking (
     message_sent_at TEXT,
     visited_at      TEXT,
     closed_at       TEXT,
+    -- WHY the case ended the way it did — what the bank actually needs back
+    -- (e.g. the account holder has died, the customer moved away, the account
+    -- was reactivated). Free of customer PII by design: `outcome` is a fixed
+    -- code and `outcome_note` is a short operational remark. Both SURVIVE the
+    -- case_closed PII purge, because a report must still explain the outcome.
+    outcome         TEXT,
+    outcome_note    TEXT,
     updated_at      TEXT NOT NULL,
     FOREIGN KEY (case_id) REFERENCES customer_cases(case_id)
 );

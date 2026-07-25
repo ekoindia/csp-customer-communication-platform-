@@ -64,6 +64,17 @@ def _run_migrations(conn):
         conn.execute("ALTER TABLE customer_cases ADD COLUMN pii_purged_at TEXT")
         conn.commit()
 
+    # Case OUTCOME (why it ended) — added so a CSP can record, and later edit,
+    # what actually happened (account reactivated, holder deceased, customer
+    # moved away, ...). Older databases get the columns forward.
+    cols = {row["name"] for row in conn.execute("PRAGMA table_info(business_tracking)")}
+    if "outcome" not in cols:
+        conn.execute("ALTER TABLE business_tracking ADD COLUMN outcome TEXT")
+        conn.commit()
+    if "outcome_note" not in cols:
+        conn.execute("ALTER TABLE business_tracking ADD COLUMN outcome_note TEXT")
+        conn.commit()
+
 
 def setup():
     """Create schema then seed reference data. Call once at app startup."""

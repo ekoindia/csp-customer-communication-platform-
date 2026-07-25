@@ -137,6 +137,22 @@ def api_keys():
             flash("CSP ID is required.")
             return redirect(url_for("admin_ui.api_keys"))
 
+        # Permanently remove a CSP from EVERY admin table. Needed when a wrong /
+        # mistyped CSP ID was created (e.g. "1AB50895" vs the real "1A850895") —
+        # leaving it behind splits that CSP's fleet status, progress and earnings
+        # across two rows forever. Only admin data is removed; no customer data
+        # is held here at all. Table list is fixed in code (never user input).
+        if action == "delete_csp":
+            removed = 0
+            with get_connection() as conn:
+                for table in ("api_keys", "csps", "progress", "progress_bands",
+                              "audit", "update_events", "ocr_metrics", "commands"):
+                    cur = conn.execute(f"DELETE FROM {table} WHERE csp_id=?", (csp_id,))
+                    removed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
+                conn.commit()
+            flash(f"Deleted CSP {csp_id} from all admin records ({removed} row(s) removed).")
+            return redirect(url_for("admin_ui.api_keys"))
+
         if action == "toggle":
             with get_connection() as conn:
                 row = conn.execute(

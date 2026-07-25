@@ -81,6 +81,15 @@
               {% if k.active %}Revoke{% else %}Reactivate{% endif %}
             </button>
           </form>
+          <form method="post" style="display:inline"
+                onsubmit="return confirm('Delete CSP {{ k.csp_id }} from ALL admin records (key, fleet status, progress, earnings, audit, OCR counts)? Use this only for a wrong/duplicate CSP ID. This cannot be undone.');">
+            <input type="hidden" name="action" value="delete_csp">
+            <input type="hidden" name="csp_id" value="{{ k.csp_id }}">
+            <button type="submit" title="Remove this CSP ID from every admin record (for a wrong/duplicate ID)"
+                    style="width:auto;padding:4px 12px;font-size:12px;background:#7a1420;border:1px solid #a11;color:#fff">
+              Delete
+            </button>
+          </form>
         </td>
       </tr>
     {% else %}

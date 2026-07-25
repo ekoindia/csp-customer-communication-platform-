@@ -6,6 +6,7 @@ Read access is unrestricted across modules.
 
 from datetime import datetime, timezone
 from typing import Optional
+import re
 import sqlite3
 from database.db import get_connection
 from core import crypto
@@ -188,6 +189,74 @@ def update_case_mobile(case_id: str, mobile: str) -> bool:
     return True
 
 
+# Fields a CSP may correct on an existing case. Everything here is data that was
+# READ OFF the bank document (so OCR can get it wrong); the generated message is
+# NOT in this list — message wording stays locked (DPDP), it is only regenerated
+# by the caller when the name changes and nothing has been sent yet.
+EDITABLE_CASE_FIELDS = ("name", "mobile", "father_name", "village", "taluka",
+                        "address", "account_number")
+
+
+def update_case_fields(case_id: str, fields: dict) -> dict:
+    """Correct customer fields on an existing case (all PII re-encrypted at rest).
+
+    Why this exists: extraction is OCR-based, so a real page can yield a wrong
+    name, a wrong digit in the account number, or a missing village — and the CSP
+    is the only one who can see and fix it. Refused on a purged/closed case (PII
+    must never be re-introduced after the DPDP purge).
+
+    account_number also updates the one-way blind index used for dedup, and is
+    refused if another case already holds that account (one account = one case).
+    Returns {ok, error?, changed: [field, ...]}.
+    """
+    clean = {k: (v if v is None else str(v).strip())
+             for k, v in (fields or {}).items() if k in EDITABLE_CASE_FIELDS}
+    if not clean:
+        return {"ok": False, "error": "nothing to update"}
+    if "name" in clean and not clean["name"]:
+        return {"ok": False, "error": "Name cannot be empty."}
+    if "account_number" in clean and not clean["account_number"]:
+        return {"ok": False, "error": "Account number cannot be empty."}
+
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT pii_purged_at, campaign_id FROM customer_cases WHERE case_id=?",
+            (case_id,)
+        ).fetchone()
+        if row is None:
+            return {"ok": False, "error": "case not found"}
+        if row["pii_purged_at"]:
+            return {"ok": False,
+                    "error": "This case is closed/purged and can no longer be edited."}
+
+        sets, params = [], []
+        for field, value in clean.items():
+            if field == "account_number":
+                # Same normalisation the extraction path applies before insert
+                # (digits only), so the blind index matches how it was built.
+                digits = re.sub(r"\D", "", value or "")
+                new_hash = crypto.account_hash(digits or value)
+                # Same scope as account_exists(): dedup is per (campaign, account).
+                dup = conn.execute(
+                    """SELECT case_id FROM customer_cases
+                       WHERE campaign_id=? AND account_number_hash=? AND case_id<>?""",
+                    (row["campaign_id"], new_hash, case_id),
+                ).fetchone()
+                if dup:
+                    return {"ok": False,
+                            "error": "Another case already has this account number."}
+                sets.append("account_number_hash=?")
+                params.append(new_hash)
+            sets.append(f"{field}=?")
+            params.append(crypto.encrypt_field(value) if field in _PII_FIELDS
+                          else (value or None))
+        params.append(case_id)
+        conn.execute(f"UPDATE customer_cases SET {', '.join(sets)} WHERE case_id=?",
+                     params)
+        conn.commit()
+    return {"ok": True, "changed": sorted(clean.keys())}
+
+
 def purge_case_pii(case_id: str) -> None:
     """Irreversibly clear a case's identifying fields once its business-tracking
     lifecycle reaches the terminal 'case_closed' state (RBI/DPDP: don't retain
@@ -279,7 +348,8 @@ def list_cases_with_tracking(batch_id: str) -> list:
                 m.wa_message, m.sms_message,
                 ca.channel, ca.status AS comm_status, ca.sent_at,
                 bt.status AS business_status, bt.is_escalated,
-                bt.visited_at, bt.closed_at
+                bt.visited_at, bt.closed_at,
+                bt.outcome, bt.outcome_note
             FROM customer_cases cc
             LEFT JOIN messages m ON m.case_id = cc.case_id
             LEFT JOIN (
@@ -525,6 +595,22 @@ def update_business_status(case_id: str, status: str,
                    message_sent_at=COALESCE(?, message_sent_at)
                WHERE case_id=?""",
             (status, _now(), visited_at, closed_at, message_sent_at, case_id),
+        )
+        conn.commit()
+
+
+def set_case_outcome(case_id: str, outcome: Optional[str],
+                     outcome_note: Optional[str] = None):
+    """Record/replace WHY a case ended (the bank's real question): a fixed
+    outcome code plus a short operational remark. Editable at any time — a CSP
+    often learns the reason after the fact (e.g. the family reports a death) —
+    including AFTER closure, since the outcome is what the report carries.
+    Deliberately survives purge_case_pii: it holds no customer identifiers."""
+    with get_connection() as conn:
+        conn.execute(
+            """UPDATE business_tracking
+               SET outcome=?, outcome_note=?, updated_at=? WHERE case_id=?""",
+            (outcome or None, (outcome_note or None), _now(), case_id),
         )
         conn.commit()
 

@@ -54,13 +54,47 @@ def _now() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
 
 
+# What the BANK actually wants back for each case. Fixed codes (never free-form
+# customer data), each with the label the CSP sees. "deceased" is the case that
+# forced this: a customer who has died can never act on a message, and the bank
+# must be told that instead of the case sitting "not visited" forever.
+OUTCOMES = {
+    "reactivated":     "Account reactivated / KYC done",
+    "visited_pending": "Customer came, process still pending",
+    "deceased":        "Account holder has died",
+    "moved_away":      "Customer moved away / not traceable",
+    "wrong_contact":   "Wrong or unreachable contact details",
+    "refused":         "Customer not willing",
+    "account_closed":  "Account already closed by the customer",
+    "other":           "Other (see remark)",
+}
+
+
 def can_transition(from_status: str, to_status: str) -> bool:
     return to_status in _ALLOWED.get(from_status, set())
 
 
-def transition(case_id: str, to_status: str) -> dict:
+def set_outcome(case_id: str, outcome: str = None, note: str = None) -> dict:
+    """Record/edit the case outcome on its own, without changing the status —
+    a CSP often learns the reason later (family reports a death, number turns
+    out wrong), and must be able to correct it even after closure."""
+    if not queries.get_business_tracking(case_id):
+        return {"ok": False, "reason": "case not found"}
+    if outcome and outcome not in OUTCOMES:
+        return {"ok": False, "reason": "unknown outcome"}
+    # Keep the remark short and operational — it is NOT a place for customer
+    # details (it survives the closure PII purge on purpose).
+    note = (note or "").strip()[:200] or None
+    queries.set_case_outcome(case_id, outcome, note)
+    return {"ok": True, "case_id": case_id, "outcome": outcome, "note": note}
+
+
+def transition(case_id: str, to_status: str, outcome: str = None,
+               note: str = None) -> dict:
     """
-    Apply a validated business-status transition.
+    Apply a validated business-status transition. An optional outcome (+ short
+    remark) can be recorded in the same step — that is how "Close" carries the
+    reason the bank needs (e.g. account holder deceased).
     Returns {ok: bool, from: str|None, to: str, reason: str|None}.
     """
     current = queries.get_business_tracking(case_id)
@@ -81,6 +115,10 @@ def transition(case_id: str, to_status: str) -> dict:
             "reason": f"illegal transition {from_status} -> {to_status}",
         }
 
+    if outcome and outcome not in OUTCOMES:
+        return {"ok": False, "from": from_status, "to": to_status,
+                "reason": "unknown outcome"}
+
     now = _now()
     visited_at = now if to_status == "customer_visited_in_progress" else None
     closed_at = now if to_status == "case_closed" else None
@@ -88,6 +126,11 @@ def transition(case_id: str, to_status: str) -> dict:
     queries.update_business_status(
         case_id, to_status, visited_at=visited_at, closed_at=closed_at
     )
+    # Record the reason in the SAME step when supplied, so closing with
+    # "account holder has died" is one action, not two. (Validated above, before
+    # anything was written.)
+    if outcome or note:
+        queries.set_case_outcome(case_id, outcome, (note or "").strip()[:200] or None)
     if to_status == "case_closed":
         # RBI/DPDP: don't retain customer PII in local storage beyond
         # operational need — case_closed is terminal, so no further sending

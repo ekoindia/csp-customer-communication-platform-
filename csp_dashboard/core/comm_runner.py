@@ -162,7 +162,23 @@ def _run(batch_id: str, chunk: list):
                 _state["message"] = f"Daily limit ({config.WA_DAILY_LIMIT}) reached. Stopping."
                 break
 
-            _dispatch_one(row)
+            # One bad case must NEVER abandon the rest of the batch. Without this
+            # guard any unexpected error inside _dispatch_one (DB hiccup, decrypt
+            # failure, provider returning something odd) escaped the loop and the
+            # run ended early, silently leaving the remaining customers unsent.
+            try:
+                _dispatch_one(row)
+            except Exception as e:  # noqa: BLE001 - keep the batch moving
+                try:
+                    queries.update_comm_status(row["attempt_id"], "wa_failed",
+                                               error_detail=f"unexpected: {e}")
+                    queries.insert_comm_attempt(row["case_id"], "whatsapp", "escalated",
+                                                error_detail=f"unexpected error: {e}")
+                    queries.set_escalated(row["case_id"], True)
+                except Exception:
+                    pass       # never let bookkeeping stop the run either
+                _state["failed"] += 1
+                print(f"[dispatch] case {row['case_id']} failed unexpectedly: {e}")
             _state["done"] += 1
             _state["message"] = f"Sent {_state['done']} / {_state['total']}"
 
@@ -194,11 +210,36 @@ def _run(batch_id: str, chunk: list):
         _lock.release()
 
 
+def _mark_message_sent(case_id: str):
+    """Move a case to 'customer_not_visited' ONLY from 'pending'.
+
+    A customer can walk into the CSP before the message actually goes out (or the
+    CSP marks a visit early). Blindly setting 'customer_not_visited' on every send
+    dragged such a case BACKWARDS and lost real progress, so the CSP's own,
+    later status always wins."""
+    current = queries.get_business_tracking(case_id)
+    if current and current["status"] != "pending":
+        return
+    queries.update_business_status(case_id, "customer_not_visited",
+                                   message_sent_at=_now())
+
+
 def _dispatch_one(row):
     """Send a single case: WhatsApp first, SMS fallback, escalate on total failure."""
     case_id = row["case_id"]
-    mobile = row["mobile"]
+    mobile = (row["mobile"] or "").strip()
     attempt_id = row["attempt_id"]
+
+    # Defensive: a queued case with no number can never be sent — escalate it for
+    # a manual visit instead of handing an empty number to the provider.
+    if not mobile:
+        queries.update_comm_status(attempt_id, "wa_failed",
+                                   error_detail="no mobile number")
+        queries.insert_comm_attempt(case_id, "whatsapp", "escalated",
+                                    error_detail="no mobile number")
+        queries.set_escalated(case_id, True)
+        _state["failed"] += 1
+        return
 
     # ── 1. WhatsApp ──
     wa = dispatcher.send_whatsapp(mobile, row["wa_message"])
@@ -207,8 +248,7 @@ def _dispatch_one(row):
         _stamp_sent(attempt_id, "wa_attempted")
         if wa["message_id"]:
             queries.set_provider_message_id(attempt_id, wa["message_id"])
-        queries.update_business_status(case_id, "customer_not_visited",
-                                       message_sent_at=_now())
+        _mark_message_sent(case_id)
         _state["wa_ok"] += 1
         return
 
@@ -221,8 +261,7 @@ def _dispatch_one(row):
         sms_id = queries.insert_comm_attempt(case_id, "sms", "sms_sent", sent_at=_now())
         if sms["message_id"]:
             queries.set_provider_message_id(sms_id, sms["message_id"])
-        queries.update_business_status(case_id, "customer_not_visited",
-                                       message_sent_at=_now())
+        _mark_message_sent(case_id)
         _state["sms_ok"] += 1
         return
 

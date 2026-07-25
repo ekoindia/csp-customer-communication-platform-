@@ -576,6 +576,7 @@ def case_detail(campaign_id: str, case_id: str):
     # case must be retryable (mirrors approval.approve_case / RETRYABLE_STATUSES),
     # otherwise a WhatsApp failure would strand it forever.
     from core.approval import RETRYABLE_STATUSES
+    from core.tracking import OUTCOMES
     last_status = attempts[-1]["status"] if attempts else None   # oldest-first list
     is_retry = last_status in RETRYABLE_STATUSES
     can_approve = bool((case["mobile"] or "").strip()) and (not attempts or is_retry)
@@ -605,6 +606,7 @@ def case_detail(campaign_id: str, case_id: str):
         can_approve=can_approve,
         is_retry=is_retry,
         last_status=last_status,
+        outcomes=OUTCOMES,
         can_edit=can_edit,
         from_sheet=from_sheet,
         prev_id=prev_id,
@@ -706,6 +708,61 @@ def update_case_mobile_route(case_id: str):
     return jsonify({"ok": True, "mobile": raw})
 
 
+@dashboard_bp.route("/api/case/<case_id>/fields", methods=["POST"])
+def update_case_fields_route(case_id: str):
+    """Correct a case's customer details (name, mobile, account number, father's
+    name, village, taluka, address).
+
+    Extraction is OCR-based, so a real scan can yield a wrong name or a wrong
+    digit in an account number, and only the CSP can see it against the source.
+    Guards: refused on a closed/purged case (PII is never re-introduced after the
+    DPDP purge), a duplicate account number is refused (one account = one case),
+    and every edit is audit-logged.
+
+    If the NAME changes and nothing has been sent yet, the message is regenerated
+    so it greets the corrected name — the wording itself still comes only from the
+    locked template (never free text), so the DPDP "message is not editable" rule
+    holds."""
+    guard = _login_required()
+    if guard:
+        return jsonify({"error": "not logged in"}), 401
+
+    from database.queries import (get_case, update_case_fields,
+                                  get_latest_comm_attempt)
+    data = request.get_json(silent=True) or {}
+
+    before = get_case(case_id)
+    if not before:
+        return jsonify({"ok": False, "error": "case not found"}), 404
+
+    # Validate the mobile here (same rule as the mobile-only endpoint): a blank
+    # mobile is allowed (= "not reachable"), anything present must be a real one.
+    if "mobile" in data:
+        digits = re.sub(r"\D", "", str(data.get("mobile") or ""))
+        if digits and not (len(digits) == 10 and digits[0] in "6789"):
+            return jsonify({"ok": False,
+                            "error": "Enter a valid 10-digit mobile number starting 6-9, or leave it blank."}), 400
+        data["mobile"] = digits
+
+    result = update_case_fields(case_id, data)
+    if not result["ok"]:
+        return jsonify(result), 400
+
+    regenerated = False
+    if "name" in result["changed"] and not get_latest_comm_attempt(case_id):
+        from core.message_engine import generate_single_message
+        try:
+            generate_single_message(case_id)
+            regenerated = True
+        except Exception:
+            regenerated = False   # message stays as-is; the edit itself stands
+
+    insert_audit_log(session["user_id"], "case_fields_edited",
+                     f"case={case_id} fields={','.join(result['changed'])}")
+    return jsonify({"ok": True, "changed": result["changed"],
+                    "message_regenerated": regenerated})
+
+
 @dashboard_bp.route("/api/batch/<batch_id>/delete", methods=["POST"])
 def delete_batch_route(batch_id: str):
     """Delete an uploaded batch and all its extracted data from the upload
@@ -762,17 +819,24 @@ def download_cases_csv(batch_id: str):
     rows = list_cases_with_tracking(batch_id)
     buf = io.StringIO()
     writer = csv.writer(buf)
+    # Outcome + remark are included because they are the part the BANK actually
+    # acts on ("account holder has died", "moved away") — a status alone doesn't
+    # explain why a case never completed. Both are PII-free by design.
+    from core.tracking import OUTCOMES
     writer.writerow([
         "Name(masked)", "Mobile(masked)", "Band", "Village", "Taluka",
-        "Channel", "Comm Status", "Business Status",
+        "Channel", "Comm Status", "Business Status", "Outcome", "Remark",
     ])
     for r in rows:
         masked = "xxxxx" + (r["mobile"][-5:] if r["mobile"] else "")
+        code = r["outcome"] if "outcome" in r.keys() else None
         writer.writerow([
             (_mask_name(r["name"]) if r["name"] else "[purged]"), masked, r["band_label"],
             r["village"] or "", r["taluka"] or "",
             r["channel"] or "", r["comm_status"] or "pending",
             r["business_status"] or "pending",
+            OUTCOMES.get(code, code or ""),
+            (r["outcome_note"] if "outcome_note" in r.keys() else "") or "",
         ])
 
     insert_audit_log(session["user_id"], "report_download", f"batch={batch_id}")
@@ -1008,13 +1072,41 @@ def update_case_status(case_id: str):
     from core import tracking
     data = request.get_json(silent=True) or {}
     new_status = data.get("status")
+    # Optional outcome + short remark, so "Close" can carry the reason the bank
+    # needs (e.g. the account holder has died) in the same action.
+    outcome = (data.get("outcome") or "").strip() or None
+    note = (data.get("note") or "").strip() or None
 
-    result = tracking.transition(case_id, new_status)
+    result = tracking.transition(case_id, new_status, outcome=outcome, note=note)
     if not result["ok"]:
         return jsonify({"ok": False, "error": result["reason"]}), 400
 
     insert_audit_log(session["user_id"], "status_update",
-                     f"case={case_id} {result['from']} -> {result['to']}")
+                     f"case={case_id} {result['from']} -> {result['to']}"
+                     + (f" outcome={outcome}" if outcome else ""))
+    return jsonify(result)
+
+
+@dashboard_bp.route("/api/case/<case_id>/outcome", methods=["POST"])
+def update_case_outcome(case_id: str):
+    """Record or CORRECT why a case ended, without changing its status. A CSP
+    usually learns the reason later (the family reports a death, the number turns
+    out to belong to someone else), so this stays editable even after closure —
+    the outcome is what the bank report carries."""
+    guard = _login_required()
+    if guard:
+        return jsonify({"error": "not logged in"}), 401
+
+    from core import tracking
+    data = request.get_json(silent=True) or {}
+    result = tracking.set_outcome(case_id,
+                                  outcome=(data.get("outcome") or "").strip() or None,
+                                  note=(data.get("note") or "").strip() or None)
+    if not result["ok"]:
+        return jsonify({"ok": False, "error": result["reason"]}), 400
+
+    insert_audit_log(session["user_id"], "case_outcome",
+                     f"case={case_id} outcome={result.get('outcome')}")
     return jsonify(result)
 
 

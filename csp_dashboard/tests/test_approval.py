@@ -245,3 +245,65 @@ def test_pending_or_sent_case_is_not_requeued(db):
     res = approval.approve_case(sent_cid)
     assert res["ok"] is False
     assert len(queries.list_comm_attempts_for_case(sent_cid)) == 1
+
+
+# ── Dispatch pipeline robustness ─────────────────────────────────────────────
+
+def test_one_bad_case_does_not_abandon_the_batch(db, monkeypatch):
+    """A single unexpected error must not stop the run — the remaining customers
+    still get their message (previously the whole batch was abandoned)."""
+    batch_id, case_ids = _setup_batch(db, n=3)
+    calls = {"n": 0}
+    real_send = None
+
+    def _flaky(mobile, message):
+        calls["n"] += 1
+        if calls["n"] == 2:                 # blow up on the middle case
+            raise RuntimeError("boom")
+        return {"success": True, "message_id": "OK", "error": None}
+
+    monkeypatch.setattr("core.dispatcher.send_whatsapp", _flaky)
+    approval.queue_and_dispatch(batch_id)
+    _wait_for_dispatch()
+
+    st = comm_runner.get_status()
+    assert st["done"] == 3                  # every case was processed
+    assert st["wa_ok"] == 2 and st["failed"] == 1
+    # the failing one is escalated so the CSP can see and retry it
+    assert len(queries.list_escalations(batch_id)) == 1
+
+
+def test_send_does_not_drag_back_a_visited_case(db):
+    """A customer may walk in BEFORE the message goes out. Sending must not reset
+    that progress back to 'not visited'."""
+    from core import tracking
+    batch_id, case_ids = _setup_batch(db, n=1)
+    cid = case_ids[0]
+    tracking.transition(cid, "customer_visited_in_progress")
+
+    approval.queue_and_dispatch(batch_id)
+    _wait_for_dispatch()
+
+    assert queries.get_business_tracking(cid)["status"] == "customer_visited_in_progress"
+
+
+def test_queued_case_without_mobile_is_escalated_not_sent(db, monkeypatch):
+    """Defensive: a queued case with no number must never be handed to the
+    provider — it is escalated for a manual visit instead."""
+    batch_id, case_ids = _setup_batch(db, n=1)
+    cid = case_ids[0]
+    sent = {"n": 0}
+    monkeypatch.setattr("core.dispatcher.send_whatsapp",
+                        lambda m, msg: (sent.__setitem__("n", sent["n"] + 1),
+                                        {"success": True, "message_id": "X", "error": None})[1])
+    approval.approve_case(cid)
+    # blank the number AFTER approval (mirrors a wrong number being cleared)
+    from database.db import get_connection
+    with get_connection() as conn:
+        conn.execute("UPDATE customer_cases SET mobile=NULL WHERE case_id=?", (cid,))
+        conn.commit()
+    comm_runner.start(batch_id)
+    _wait_for_dispatch()
+
+    assert sent["n"] == 0                                    # never dialled
+    assert len(queries.list_escalations(batch_id)) == 1

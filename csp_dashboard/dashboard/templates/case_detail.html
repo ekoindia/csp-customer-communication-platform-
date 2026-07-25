@@ -76,12 +76,47 @@
       <div class="card h-100">
         <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
           <span data-i18n="cd.custinfo">Customer Information</span>
-          <span class="text-muted small" data-i18n="cd.locked">locked — corrections are made on the review screen before confirming</span>
+          {% if not case.pii_purged_at %}
+          <button type="button" class="btn btn-sm btn-outline-primary" onclick="openPiiEdit()"
+                  title="Correct details that OCR read wrong from the document">Edit details</button>
+          {% else %}
+          <span class="text-muted small">record purged (closed case)</span>
+          {% endif %}
         </div>
         <div class="card-body">
-          <table class="table table-sm mb-0">
+          <!-- Full correction form: extraction is OCR-based, so any field read off
+               the document can be wrong and only the CSP can see it. The MESSAGE is
+               never free-text — it is regenerated from the locked template if the
+               name changes and nothing has been sent yet. -->
+          <div id="piiEditBox" class="d-none">
+            <div id="piiAlert"></div>
+            <div class="row g-2">
+              <div class="col-12"><label class="form-label small mb-0">Name</label>
+                <input id="piiName" class="form-control form-control-sm" value="{{ case.name or '' }}"></div>
+              <div class="col-6"><label class="form-label small mb-0">Account number</label>
+                <input id="piiAccount" class="form-control form-control-sm" value="{{ case.account_number or '' }}"></div>
+              <div class="col-6"><label class="form-label small mb-0">Mobile (blank = not reachable)</label>
+                <input id="piiMobile" type="tel" inputmode="numeric" maxlength="10"
+                       class="form-control form-control-sm" value="{{ case.mobile or '' }}"></div>
+              <div class="col-6"><label class="form-label small mb-0">Father's name</label>
+                <input id="piiFather" class="form-control form-control-sm" value="{{ case.father_name or '' }}"></div>
+              <div class="col-6"><label class="form-label small mb-0">Village</label>
+                <input id="piiVillage" class="form-control form-control-sm" value="{{ case.village or '' }}"></div>
+              <div class="col-6"><label class="form-label small mb-0">Taluka</label>
+                <input id="piiTaluka" class="form-control form-control-sm" value="{{ case.taluka or '' }}"></div>
+              <div class="col-12"><label class="form-label small mb-0">Address</label>
+                <input id="piiAddress" class="form-control form-control-sm" value="{{ case.address or '' }}"></div>
+            </div>
+            <div class="mt-2 d-flex gap-2">
+              <button class="btn btn-sm btn-primary" onclick="savePii()">Save corrections</button>
+              <button class="btn btn-sm btn-outline-secondary" onclick="closePiiEdit()">Cancel</button>
+            </div>
+            <div class="form-text">Balance band and the message wording cannot be changed here.</div>
+          </div>
+          <table id="piiViewTable" class="table table-sm mb-0">
             <tbody>
               <tr><td class="text-muted" style="width:40%" data-i18n="cd.account">Account number</td><td>{{ case.account_number or "—" }}</td></tr>
+              <tr><td class="text-muted">Name</td><td><span class="masked-name">{{ case.name or "—" }}</span></td></tr>
               <tr><td class="text-muted" data-i18n="cd.mobile">Mobile</td>
                 <td class="fw-semibold">
                   {% if case.pii_purged_at %}— record purged —
@@ -99,6 +134,8 @@
                 </td></tr>
               <tr><td class="text-muted" data-i18n="cd.band">Balance band</td><td>{{ case.balance_band }} ({{ case.band_label }})</td></tr>
               <tr><td class="text-muted" data-i18n="cd.village">Village</td><td>{{ case.village or "—" }}</td></tr>
+              <tr><td class="text-muted">Father's name</td><td>{{ case.father_name or "—" }}</td></tr>
+              <tr><td class="text-muted">Address</td><td class="small">{{ case.address or "—" }}</td></tr>
               <tr><td class="text-muted" data-i18n="cd.batch">Batch</td><td class="small">{{ case.batch_id }}</td></tr>
             </tbody>
           </table>
@@ -127,6 +164,26 @@
               <td class="small">{{ _clo | ist_date }}{% if _clo %} · <span class="text-muted">{{ _clo | ist_time }}</span>{% endif %}</td></tr>
           </tbody>
         </table>
+        <!-- Outcome / feedback: WHAT ACTUALLY HAPPENED — this is what the bank
+             wants back (e.g. the account holder has died, so the case can never
+             be completed). Editable at any time, including after closure, because
+             the CSP often learns the reason later. Kept free of customer details:
+             it survives the closure PII purge on purpose. -->
+        <div class="card-body border-top">
+          <div class="fw-semibold mb-1">Outcome / feedback <span class="text-muted small">(for the bank)</span></div>
+          <div id="outcomeAlert"></div>
+          <select id="outcomeSelect" class="form-select form-select-sm mb-2">
+            <option value="">— not recorded —</option>
+            {% for code, label in outcomes.items() %}
+            <option value="{{ code }}" {% if tracking and tracking.outcome == code %}selected{% endif %}>{{ label }}</option>
+            {% endfor %}
+          </select>
+          <input id="outcomeNote" class="form-control form-control-sm" maxlength="200"
+                 placeholder="Short remark (optional) — no personal details"
+                 value="{{ tracking.outcome_note if tracking and tracking.outcome_note else '' }}">
+          <button class="btn btn-sm btn-primary mt-2" onclick="saveOutcome()">Save outcome</button>
+          <div class="form-text">Saved with the case and included in the reports — also usable on a closed case.</div>
+        </div>
       </div>
     </div>
 
@@ -251,6 +308,57 @@ document.addEventListener("keydown", (e) => {
 // Customer records are locked after confirmation, with ONE exception: the mobile
 // number can be corrected here (OCR misses ~1 in 7 mobiles; a wrong number = the
 // customer is never reached). Name/account/message stay immutable.
+// ── Full detail correction (OCR fixes) ──
+function openPiiEdit() {
+  document.getElementById("piiEditBox").classList.remove("d-none");
+  document.getElementById("piiViewTable").classList.add("d-none");
+}
+function closePiiEdit() { window.location.reload(); }
+
+function savePii() {
+  const payload = {
+    name:        document.getElementById("piiName").value,
+    account_number: document.getElementById("piiAccount").value,
+    mobile:      document.getElementById("piiMobile").value,
+    father_name: document.getElementById("piiFather").value,
+    village:     document.getElementById("piiVillage").value,
+    taluka:      document.getElementById("piiTaluka").value,
+    address:     document.getElementById("piiAddress").value,
+  };
+  const box = document.getElementById("piiAlert");
+  box.innerHTML = "";
+  fetch(`/api/case/{{ case.case_id }}/fields`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload)
+  }).then(r => r.json()).then(d => {
+    if (d.ok) { window.location.reload(); }
+    else {
+      box.innerHTML = `<div class="alert alert-danger py-1 small">${d.error || "Could not save."}</div>`;
+    }
+  }).catch(() => {
+    box.innerHTML = `<div class="alert alert-danger py-1 small">Network error while saving.</div>`;
+  });
+}
+
+// ── Outcome / feedback (what the bank needs back) ──
+function saveOutcome() {
+  const box = document.getElementById("outcomeAlert");
+  box.innerHTML = "";
+  fetch(`/api/case/{{ case.case_id }}/outcome`, {
+    method: "POST", headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      outcome: document.getElementById("outcomeSelect").value,
+      note: document.getElementById("outcomeNote").value,
+    })
+  }).then(r => r.json()).then(d => {
+    box.innerHTML = d.ok
+      ? `<div class="alert alert-success py-1 small">Outcome saved.</div>`
+      : `<div class="alert alert-danger py-1 small">${d.error || "Could not save."}</div>`;
+  }).catch(() => {
+    box.innerHTML = `<div class="alert alert-danger py-1 small">Network error while saving.</div>`;
+  });
+}
+
 function editMobile() {
   document.getElementById("mobView").style.display = "none";
   document.getElementById("mobEdit").style.display = "inline";
