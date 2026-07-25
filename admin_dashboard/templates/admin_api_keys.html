@@ -40,7 +40,17 @@
 </div>
 
 <div class="panel">
-  <h2>Issued keys</h2>
+  <h2 style="display:flex;align-items:center;justify-content:space-between">
+    <span>Issued keys</span>
+    <form method="post" style="margin:0"
+          onsubmit="return confirm('Revoke ALL keys? Every CSP will be disconnected and must be re-issued a key + sent a fresh CSP_Setup.bat. This cannot be undone.');">
+      <input type="hidden" name="action" value="revoke_all">
+      <button type="submit"
+              style="width:auto;padding:6px 14px;font-size:12px;background:#7a1420;border:1px solid #a11;color:#fff">
+        Revoke ALL (start fresh)
+      </button>
+    </form>
+  </h2>
   <p class="note" style="margin:0 0 12px">"Setup file" downloads a single, fully
     self-contained <code>CSP_Setup.bat</code> for that CSP — install package +
     this key already baked in. That is the ONLY file you send that CSP; no

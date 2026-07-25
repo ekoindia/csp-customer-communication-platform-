@@ -119,6 +119,19 @@ def api_keys():
     new_key = None
     if request.method == "POST":
         action = request.form.get("action")
+
+        # Bulk "start everyone fresh": revoke ALL keys at once. After this every
+        # CSP install stops reporting/using OCR until re-issued a fresh key +
+        # given a fresh CSP_Setup.bat. Deliberately requires no csp_id.
+        if action == "revoke_all":
+            with get_connection() as conn:
+                n = conn.execute("SELECT COUNT(*) c FROM api_keys WHERE active=1").fetchone()["c"]
+                conn.execute("UPDATE api_keys SET active=0")
+                conn.commit()
+            flash(f"Revoked ALL keys ({n} active). Every CSP is now disconnected "
+                  f"— issue a fresh key + send a new CSP_Setup.bat to each.")
+            return redirect(url_for("admin_ui.api_keys"))
+
         csp_id = request.form.get("csp_id", "").strip()
         if not csp_id:
             flash("CSP ID is required.")

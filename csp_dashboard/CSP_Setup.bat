@@ -100,39 +100,36 @@ set "SRCDIR=%TMPX%"
 for /f "delims=" %%F in ('dir /b /s "%TMPX%\INSTALL.bat" 2^>nul') do set "SRCDIR=%%~dpF"
 if "%SRCDIR:~-1%"=="\" set "SRCDIR=%SRCDIR:~0,-1%"
 
-REM ---------- 3. Copy into C:\CSP_Platform ----------
-REM On a FRESH machine everything is copied. On a RE-RUN of an already-set-up
-REM CSP, the existing settings + data + WhatsApp login are PRESERVED.
+REM ---------- 3. FRESH install into C:\CSP_Platform ----------
+REM CLEAN refresh: every PROGRAM file is replaced with the new version and stale
+REM Python bytecode is wiped, so NO old / error-prone code can linger or shadow
+REM the new code. The CSP's DATA is kept: cases database, encryption keys, and
+REM WhatsApp login. The Eko connection (.env) is ALWAYS rewritten below with the
+REM fresh key, so a re-issued key takes effect and the old (revoked) key is gone.
 if not exist "%INSTALL_DIR%" mkdir "%INSTALL_DIR%"
-set "KEEP="
-if exist "%INSTALL_DIR%\config.py" (
-    echo Existing install detected - keeping current settings, data and WhatsApp login.
-    set "KEEP=/XF config.py secret.key csp_platform.db /XD .wa_session"
-)
-echo Installing application files into %INSTALL_DIR% ...
-REM Exclude core\models (OnnxTR/custom OCR weights, ~87 MB): OCR runs on the Eko
-REM server, so the CSP never needs the model files locally. (The whole-repo zip
-REM may still contain them; this stops them landing in the install.)
-robocopy "%SRCDIR%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP /XD "%SRCDIR%\core\models" %KEEP% >nul
+echo Installing a FRESH copy (old program files replaced; your data + WhatsApp login kept) ...
+REM Remove stale compiled bytecode so a renamed/removed module can't shadow new code.
+for /d /r "%INSTALL_DIR%" %%d in (__pycache__) do if exist "%%d" rmdir /s /q "%%d" 2>nul
+REM /XD core\models (server-only OCR weights) + .wa_session (WhatsApp login kept).
+REM /XF keeps the cases DB + keys from being touched; all code + config.py refresh.
+robocopy "%SRCDIR%" "%INSTALL_DIR%" /E /NFL /NDL /NJH /NJS /NP ^
+    /XD "%SRCDIR%\core\models" ".wa_session" ^
+    /XF "secret.key" "pii.key" "csp_platform.db" "*.db" >nul
 
-REM ---------- 3b. Pre-configure the Eko Admin Portal connection ----------
-REM If this file was generated for a specific CSP (CSP_ID/API_KEY are not the
-REM placeholders), write .env now so INSTALL.bat's own connect prompt (which
-REM only runs "if not exist .env") is skipped - the CSP never sees it, never
-REM types anything, never needs a separate key sent to them.
+REM ---------- 3b. (Re)write the Eko connection with the FRESH key ----------
+REM ALWAYS overwrite .env (no "if not exist" guard) so a freshly re-issued key
+REM replaces any old/revoked one immediately. This is what makes a re-run a true
+REM "old setup out, new setup in" rather than silently keeping a dead key.
 if not "%CSP_ID%"=="REPLACE-CSP-ID" if not "%API_KEY%"=="REPLACE-API-KEY" (
-    if not exist "%INSTALL_DIR%\.env" (
-        (
-            echo ADMIN_CSP_ID=%CSP_ID%
-            echo ADMIN_API_KEY=%API_KEY%
-            echo ADMIN_REPORT_ENABLED=1
-            REM OCR runs on the Eko server for CSP installs (no local OCR engine
-            REM ships), so this MUST be on or scanned uploads extract 0 rows.
-            echo SERVER_OCR_ENABLED=1
-            if not "%ADMIN_API_BASE%"=="REPLACE-ADMIN-API-BASE" echo ADMIN_API_BASE=%ADMIN_API_BASE%
-        ) > "%INSTALL_DIR%\.env"
-        echo Pre-configured for CSP %CSP_ID% - connects to Eko automatically.
-    )
+    (
+        echo ADMIN_CSP_ID=%CSP_ID%
+        echo ADMIN_API_KEY=%API_KEY%
+        echo ADMIN_REPORT_ENABLED=1
+        REM OCR runs on the Eko server (no local OCR engine ships) - MUST be on.
+        echo SERVER_OCR_ENABLED=1
+        if not "%ADMIN_API_BASE%"=="REPLACE-ADMIN-API-BASE" echo ADMIN_API_BASE=%ADMIN_API_BASE%
+    ) > "%INSTALL_DIR%\.env"
+    echo Connected CSP %CSP_ID% to Eko with the fresh key.
 )
 
 REM ---------- 4. Hand off to the dependency installer (in place) ----------
