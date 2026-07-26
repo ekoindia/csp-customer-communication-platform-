@@ -152,11 +152,51 @@ app.post("/send", async (req, res) => {
     }
 
     const jid = `${normalizedMobile}@s.whatsapp.net`;
+
+    // Is this number actually ON WhatsApp? On a rural Jan Dhan list most send
+    // failures are simply numbers with no WhatsApp account (or a digit misread by
+    // OCR) — not a network or connection problem. Without this check every case
+    // came back as a generic failure, so the CSP could not tell "this person has
+    // no WhatsApp, call them / send SMS" from "retry later". We report it as a
+    // distinct reason so the dashboard can say exactly that.
+    try {
+        const found = await sock.onWhatsApp(normalizedMobile);
+        if (!found || !found.length || !found[0]?.exists) {
+            return res.json({
+                success: false,
+                reason: "not_on_whatsapp",
+                error: "This number is not on WhatsApp (or the number is wrong)",
+            });
+        }
+    } catch (err) {
+        // The check itself failed (transient) — don't block the send, just try it.
+        console.error("onWhatsApp check failed:", err.message);
+    }
+
     try {
         const sent = await sock.sendMessage(jid, { text: message });
         return res.json({ success: true, message_id: sent.key.id });
     } catch (err) {
         return res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /check?mobile=98XXXXXXXX — is a number on WhatsApp? Lets the CSP verify a
+// corrected number BEFORE re-approving a failed case, instead of send-and-hope.
+app.get("/check", async (req, res) => {
+    if (!isReady || !sock) {
+        return res.status(503).json({ ok: false, error: "WhatsApp not ready" });
+    }
+    const normalizedMobile = normalizeIndianMobile(req.query.mobile || "");
+    if (!normalizedMobile) {
+        return res.status(400).json({ ok: false, error: "invalid mobile number" });
+    }
+    try {
+        const found = await sock.onWhatsApp(normalizedMobile);
+        const exists = !!(found && found.length && found[0]?.exists);
+        return res.json({ ok: true, on_whatsapp: exists });
+    } catch (err) {
+        return res.status(500).json({ ok: false, error: err.message });
     }
 });
 

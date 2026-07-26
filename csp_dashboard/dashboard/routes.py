@@ -708,6 +708,21 @@ def update_case_mobile_route(case_id: str):
     return jsonify({"ok": True, "mobile": raw})
 
 
+@dashboard_bp.route("/api/whatsapp/check", methods=["GET"])
+def check_whatsapp_number():
+    """Is a number on WhatsApp? Used right after correcting a wrong number, so the
+    CSP knows BEFORE re-approving whether a retry can even succeed — most failures
+    on a rural list are numbers with no WhatsApp account, not network problems."""
+    guard = _login_required()
+    if guard:
+        return jsonify({"error": "not logged in"}), 401
+    from core.dispatcher import check_whatsapp
+    digits = re.sub(r"\D", "", str(request.args.get("mobile", "")))
+    if not (len(digits) == 10 and digits[0] in "6789"):
+        return jsonify({"ok": False, "error": "Enter a valid 10-digit mobile number."}), 400
+    return jsonify(check_whatsapp(digits))
+
+
 @dashboard_bp.route("/api/case/<case_id>/fields", methods=["POST"])
 def update_case_fields_route(case_id: str):
     """Correct a case's customer details (name, mobile, account number, father's

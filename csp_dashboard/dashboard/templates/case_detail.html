@@ -96,8 +96,13 @@
               <div class="col-6"><label class="form-label small mb-0">Account number</label>
                 <input id="piiAccount" class="form-control form-control-sm" value="{{ case.account_number or '' }}"></div>
               <div class="col-6"><label class="form-label small mb-0">Mobile (blank = not reachable)</label>
-                <input id="piiMobile" type="tel" inputmode="numeric" maxlength="10"
-                       class="form-control form-control-sm" value="{{ case.mobile or '' }}"></div>
+                <div class="d-flex gap-1">
+                  <input id="piiMobile" type="tel" inputmode="numeric" maxlength="10"
+                         class="form-control form-control-sm" value="{{ case.mobile or '' }}">
+                  <button type="button" class="btn btn-sm btn-outline-secondary text-nowrap"
+                          onclick="checkWa()" title="Check whether this number is on WhatsApp">Check WA</button>
+                </div>
+                <div id="waCheckResult" class="form-text"></div></div>
               <div class="col-6"><label class="form-label small mb-0">Father's name</label>
                 <input id="piiFather" class="form-control form-control-sm" value="{{ case.father_name or '' }}"></div>
               <div class="col-6"><label class="form-label small mb-0">Village</label>
@@ -338,6 +343,30 @@ function savePii() {
   }).catch(() => {
     box.innerHTML = `<div class="alert alert-danger py-1 small">Network error while saving.</div>`;
   });
+}
+
+// Verify a corrected number BEFORE re-approving: most failures on a rural list
+// are numbers with no WhatsApp account, not network problems.
+function checkWa() {
+  const box = document.getElementById("waCheckResult");
+  const m = (document.getElementById("piiMobile").value || "").replace(/\D/g, "");
+  if (!(m.length === 10 && "6789".includes(m[0]))) {
+    box.innerHTML = '<span class="text-danger">Enter a valid 10-digit number first.</span>';
+    return;
+  }
+  box.textContent = "checking…";
+  fetch(`/api/whatsapp/check?mobile=${m}`)
+    .then(r => r.json())
+    .then(d => {
+      if (!d.ok) {
+        box.innerHTML = `<span class="text-warning">Could not check: ${d.error || "WhatsApp not connected"}</span>`;
+      } else if (d.on_whatsapp) {
+        box.innerHTML = '<span class="text-success">✓ This number IS on WhatsApp.</span>';
+      } else {
+        box.innerHTML = '<span class="text-danger">✗ Not on WhatsApp — it will fail. Use SMS or visit/call the customer.</span>';
+      }
+    })
+    .catch(() => { box.innerHTML = '<span class="text-warning">Network error while checking.</span>'; });
 }
 
 // ── Outcome / feedback (what the bank needs back) ──
