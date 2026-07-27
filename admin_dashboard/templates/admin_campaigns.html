@@ -64,8 +64,12 @@
   {% endfor %}
   {% endif %}
 
-  {% if r.bands %}
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Balance-band reach (only for lists that carry a band)</p>
+  {% if r.bands and r.band_csps %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
+    Balance-band reach — a category that exists only in SOME bank lists
+    ({{ r.band_csps }} of {{ r.csps }} CSP{{ '' if r.csps == 1 else 's' }} in this campaign).
+    Use Contactability and Case outcomes above to compare all CSPs.
+  </p>
   {% for b in r.bands %}
     <div class="bandrow">
       <div class="nm">{{ b.band }}</div>

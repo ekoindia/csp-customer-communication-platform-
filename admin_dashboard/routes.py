@@ -288,6 +288,16 @@ def campaigns():
                       SUM(total) total, SUM(reached) reached
                FROM progress_bands GROUP BY campaign_id, month, band
                ORDER BY band""").fetchall()
+        # How many CSPs actually HAVE this category in their bank list. Balance
+        # band is a property of one particular list format (Alamgir's has it,
+        # Sanjeev's and Rajan's do not) — without this, a band chart built from
+        # one CSP silently reads as if it described the whole campaign.
+        band_cov = conn.execute(
+            """SELECT campaign_id, month, COUNT(DISTINCT csp_id) n
+               FROM progress_bands
+               WHERE COALESCE(NULLIF(TRIM(band),''),'NA') NOT IN ('NA','?')
+               GROUP BY campaign_id, month""").fetchall()
+        band_csps = {(b["campaign_id"], b["month"]): b["n"] for b in band_cov}
         # Format-INDEPENDENT breakdown: balance band exists only in some bank
         # lists, so outcomes are what let Eko compare CSPs on the same footing.
         outcome_rows = conn.execute(
@@ -328,11 +338,14 @@ def campaigns():
         d = dict(r)
         d["reach_rate"] = round(100.0 * (d["reached"] or 0) / d["total"], 1) if d["total"] else 0.0
         d["bands"] = bands.get((r["campaign_id"], r["month"]), [])
-        # A band labelled "?" / empty means that CSP's bank list simply has no
-        # balance-band column — say so instead of showing a mystery bucket.
+        # "?" / "" / "NA" means that CSP's bank list simply has no balance-band
+        # column — say so instead of showing a mystery bucket.
         for b in d["bands"]:
-            if not (b.get("band") or "").strip() or b.get("band") == "?":
+            if (b.get("band") or "").strip() in ("", "?", "NA"):
                 b["band"] = "no band in list"
+        # Coverage: this category exists only in SOME lists, so state how many of
+        # the campaign's CSPs it actually describes.
+        d["band_csps"] = band_csps.get((r["campaign_id"], r["month"]), 0)
         d["outcomes"] = outcomes.get((r["campaign_id"], r["month"]), [])
         d["per_csp"] = per_csp.get((r["campaign_id"], r["month"]), [])
         data.append(d)
