@@ -278,7 +278,9 @@ def campaigns():
                       SUM(sms_failed) sms_failed, SUM(escalated) escalated,
                       SUM(visit_pending) visit_pending, SUM(visited) visited,
                       SUM(in_progress) in_progress, SUM(completed) completed,
-                      SUM(closed) closed
+                      SUM(closed) closed,
+                      SUM(with_mobile) with_mobile, SUM(no_mobile) no_mobile,
+                      SUM(not_on_whatsapp) not_on_whatsapp
                FROM progress GROUP BY campaign_id, month
                ORDER BY month DESC, campaign_id""").fetchall()
         band_rows = conn.execute(
@@ -286,6 +288,12 @@ def campaigns():
                       SUM(total) total, SUM(reached) reached
                FROM progress_bands GROUP BY campaign_id, month, band
                ORDER BY band""").fetchall()
+        # Format-INDEPENDENT breakdown: balance band exists only in some bank
+        # lists, so outcomes are what let Eko compare CSPs on the same footing.
+        outcome_rows = conn.execute(
+            """SELECT campaign_id, month, outcome, SUM(count) n
+               FROM progress_outcomes GROUP BY campaign_id, month, outcome
+               ORDER BY n DESC""").fetchall()
         csp_rows = conn.execute(
             """SELECT p.campaign_id, p.month, p.csp_id, c.name AS csp_name,
                       p.total, p.reached, p.failed, p.pct,
@@ -293,9 +301,25 @@ def campaigns():
                       p.visited, p.closed
                FROM progress p LEFT JOIN csps c ON c.csp_id = p.csp_id
                ORDER BY p.campaign_id, p.month, c.name, p.csp_id""").fetchall()
+    _OUTCOME_LABELS = {
+        "reactivated": "Account reactivated / KYC done",
+        "visited_pending": "Customer came, process pending",
+        "deceased": "Account holder has died",
+        "moved_away": "Moved away / not traceable",
+        "wrong_contact": "Wrong or unreachable contact",
+        "refused": "Customer not willing",
+        "account_closed": "Account already closed",
+        "other": "Other",
+        "not_recorded": "No outcome recorded yet",
+    }
     bands = {}
     for b in band_rows:
         bands.setdefault((b["campaign_id"], b["month"]), []).append(dict(b))
+    outcomes = {}
+    for o in outcome_rows:
+        d = dict(o)
+        d["label"] = _OUTCOME_LABELS.get(d["outcome"], d["outcome"])
+        outcomes.setdefault((o["campaign_id"], o["month"]), []).append(d)
     per_csp = {}
     for c in csp_rows:
         per_csp.setdefault((c["campaign_id"], c["month"]), []).append(dict(c))
@@ -304,6 +328,12 @@ def campaigns():
         d = dict(r)
         d["reach_rate"] = round(100.0 * (d["reached"] or 0) / d["total"], 1) if d["total"] else 0.0
         d["bands"] = bands.get((r["campaign_id"], r["month"]), [])
+        # A band labelled "?" / empty means that CSP's bank list simply has no
+        # balance-band column — say so instead of showing a mystery bucket.
+        for b in d["bands"]:
+            if not (b.get("band") or "").strip() or b.get("band") == "?":
+                b["band"] = "no band in list"
+        d["outcomes"] = outcomes.get((r["campaign_id"], r["month"]), [])
         d["per_csp"] = per_csp.get((r["campaign_id"], r["month"]), [])
         data.append(d)
     return render_template("admin_campaigns.html", rows=data)

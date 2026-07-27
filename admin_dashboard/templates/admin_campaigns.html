@@ -37,8 +37,35 @@
     <div class="stat visit"><div class="v">{{ r.closed }}</div><div class="l">Closed</div></div>
   </div>
 
+  <!-- FORMAT-INDEPENDENT breakdown. Balance band exists only in some bank
+       lists, so these two panels are what let Eko compare every CSP on the same
+       footing — including ones whose sheet has no band column at all. -->
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Contactability (works for every list format)</p>
+  <div class="grid">
+    <div class="stat"><div class="v">{{ r.with_mobile or 0 }}</div><div class="l">Have a mobile</div></div>
+    <div class="stat bad2"><div class="v">{{ r.no_mobile or 0 }}</div><div class="l">No mobile in the list</div></div>
+    <div class="stat bad2"><div class="v">{{ r.not_on_whatsapp or 0 }}</div><div class="l">Not on WhatsApp</div></div>
+  </div>
+  {% if r.no_mobile %}
+  <p class="note" style="margin:4px 0 0;color:var(--soft)">
+    {{ r.no_mobile }} case(s) have no phone number in the bank list — they can never be
+    messaged and need a visit/call, so they are a DATA gap, not poor reach.
+  </p>
+  {% endif %}
+
+  {% if r.outcomes %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Case outcomes (why cases ended)</p>
+  {% for o in r.outcomes %}
+    <div class="bandrow">
+      <div class="nm">{{ o.label }}</div>
+      <div class="track"><div class="bar"><span style="width:{{ (100 * o.n / r.total) if r.total else 0 }}%"></span></div></div>
+      <div class="n">{{ o.n }}</div>
+    </div>
+  {% endfor %}
+  {% endif %}
+
   {% if r.bands %}
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Balance-band reach (reached / total)</p>
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Balance-band reach (only for lists that carry a band)</p>
   {% for b in r.bands %}
     <div class="bandrow">
       <div class="nm">{{ b.band }}</div>

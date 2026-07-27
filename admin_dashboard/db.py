@@ -26,6 +26,14 @@ def setup():
         cols = {r["name"] for r in conn.execute("PRAGMA table_info(csps)")}
         if "dxdiag" not in cols:
             conn.execute("ALTER TABLE csps ADD COLUMN dxdiag TEXT")
+        # Forward-migration: format-INDEPENDENT breakdown columns. Balance band
+        # exists only in some bank lists, so a band-only view is blind for CSPs
+        # whose sheets have none; these hold for every format.
+        pcols = {r["name"] for r in conn.execute("PRAGMA table_info(progress)")}
+        for col in ("with_mobile", "no_mobile", "not_on_whatsapp"):
+            if col not in pcols:
+                conn.execute(
+                    f"ALTER TABLE progress ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS ocr_metrics (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,

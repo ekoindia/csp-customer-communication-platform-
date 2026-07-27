@@ -73,10 +73,30 @@ CREATE TABLE IF NOT EXISTS progress (
     in_progress     INTEGER NOT NULL DEFAULT 0,   -- visit started
     completed       INTEGER NOT NULL DEFAULT 0,   -- account reactivated
     closed          INTEGER NOT NULL DEFAULT 0,   -- case closed
+    -- (c) FORMAT-INDEPENDENT breakdown --------------------------------------
+    -- Balance band only exists in some bank lists, so band-only reporting is
+    -- blind for CSPs whose sheets have no band. These hold for every format:
+    with_mobile     INTEGER NOT NULL DEFAULT 0,   -- cases that CAN be messaged
+    no_mobile       INTEGER NOT NULL DEFAULT 0,   -- sheet had no usable number
+    not_on_whatsapp INTEGER NOT NULL DEFAULT 0,   -- failed because no WA account
     -- commission (left as-is; formula deferred / EDR-1) ---------------------
     earnings        REAL    NOT NULL DEFAULT 0,
     updated_at      TEXT,
     UNIQUE(csp_id, campaign_id, month)
+);
+
+-- Why cases ended, independent of the document's columns (reactivated,
+-- deceased, moved_away, wrong_contact, refused, account_closed, other,
+-- not_recorded). Counts only — never an identifier.
+CREATE TABLE IF NOT EXISTS progress_outcomes (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    csp_id      TEXT NOT NULL,
+    campaign_id TEXT,
+    month       TEXT,
+    outcome     TEXT NOT NULL,
+    count       INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT,
+    UNIQUE(csp_id, campaign_id, month, outcome)
 );
 
 -- Per-balance-band rollup (category bars). Band is a CATEGORY, not a person;

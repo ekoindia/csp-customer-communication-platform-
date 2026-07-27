@@ -422,9 +422,12 @@ def report():
                        failed, pct, wa_sent, wa_delivered, wa_read, wa_failed,
                        sms_sent, sms_delivered, sms_failed, escalated,
                        visit_pending, visited, in_progress, completed, closed,
+                       with_mobile, no_mobile, not_on_whatsapp,
                        earnings, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(csp_id, campaign_id, month) DO UPDATE SET
+                       with_mobile=excluded.with_mobile, no_mobile=excluded.no_mobile,
+                       not_on_whatsapp=excluded.not_on_whatsapp,
                        total=excluded.total, reached=excluded.reached,
                        failed=excluded.failed, pct=excluded.pct,
                        wa_sent=excluded.wa_sent, wa_delivered=excluded.wa_delivered,
@@ -441,7 +444,26 @@ def report():
                  _i(camp, "sms_sent"), _i(camp, "sms_delivered"), _i(camp, "sms_failed"),
                  _i(camp, "escalated"), _i(camp, "visit_pending"), _i(camp, "visited"),
                  _i(camp, "in_progress"), _i(camp, "completed"), _i(camp, "closed"),
+                 _i(camp, "with_mobile"), _i(camp, "no_mobile"),
+                 _i(camp, "wa_not_on_whatsapp"),
                  _f(camp, "earnings"), now))
+
+            # Format-INDEPENDENT outcome counts (why cases ended). Unlike bands,
+            # these exist for every bank list, so a CSP whose sheet has no balance
+            # band is no longer a blank "?" bar in the admin view.
+            for oc in (camp.get("outcomes") or [])[:20]:
+                if not isinstance(oc, dict):
+                    continue
+                code = str(oc.get("outcome") or "")[:40]
+                if not code:
+                    continue
+                conn.execute(
+                    """INSERT INTO progress_outcomes (csp_id, campaign_id, month,
+                           outcome, count, updated_at)
+                       VALUES (?,?,?,?,?,?)
+                       ON CONFLICT(csp_id, campaign_id, month, outcome) DO UPDATE SET
+                           count=excluded.count, updated_at=excluded.updated_at""",
+                    (csp_id, campaign_id, month, code, _i(oc, "count"), now))
 
             # per-band category counts (band = category, not a person)
             for bd in (camp.get("bands") or [])[:20]:

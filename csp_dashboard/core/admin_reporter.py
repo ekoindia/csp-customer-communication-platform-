@@ -117,9 +117,57 @@ def _campaign_progress(conn, campaign_id: str) -> dict:
     bands = [{"band": r["band_label"], "total": r["total"] or 0,
               "reached": r["reached"] or 0} for r in band_rows]
 
+    # ── FORMAT-INDEPENDENT bifurcation ──────────────────────────────────────
+    # Balance band exists only in SOME bank lists (Alamgir's has it; Sanjeev's and
+    # Rajan's don't), so a band-only breakdown collapses those CSPs into one "?"
+    # bucket and tells Eko nothing. These two dimensions exist for EVERY list:
+    #
+    #   reachability — how many cases even HAVE a usable mobile. A sheet with no
+    #                  mobile column can never be messaged, and that must be
+    #                  visible as a data problem, not as "poor reach".
+    #   outcome      — why a case ended (reactivated / deceased / moved away /
+    #                  wrong contact ...). This is the answer the bank wants and
+    #                  it does not depend on the document's columns at all.
+    #
+    # Counts only, exactly like everything else here — no identifiers leave the PC.
+    reach_rows = conn.execute(
+        """SELECT COUNT(*) total,
+                  SUM(CASE WHEN cc.mobile IS NULL OR cc.mobile='' THEN 1 ELSE 0 END) no_mobile
+           FROM customer_cases cc WHERE cc.campaign_id=?""",
+        (campaign_id,),
+    ).fetchone()
+    no_mobile = (reach_rows["no_mobile"] or 0) if reach_rows else 0
+    with_mobile = ((reach_rows["total"] or 0) - no_mobile) if reach_rows else 0
+
+    outcome_rows = conn.execute(
+        """SELECT COALESCE(NULLIF(bt.outcome,''), 'not_recorded') AS outcome,
+                  COUNT(*) n
+           FROM business_tracking bt
+           JOIN customer_cases cc ON cc.case_id = bt.case_id
+           WHERE cc.campaign_id=?
+           GROUP BY 1""",
+        (campaign_id,),
+    ).fetchall()
+    outcomes = [{"outcome": r["outcome"], "count": r["n"]} for r in outcome_rows]
+
+    # How many WhatsApp failures were simply "this number is not on WhatsApp"
+    # (the dominant cause on a rural list) rather than a network/bridge problem —
+    # this is what tells Eko whether SMS/DLT activation is the real blocker.
+    not_on_wa = conn.execute(
+        """SELECT COUNT(DISTINCT ca.case_id) n
+           FROM communication_attempts ca
+           JOIN customer_cases cc ON cc.case_id = ca.case_id
+           WHERE cc.campaign_id=? AND ca.error_detail LIKE '%not on WhatsApp%'""",
+        (campaign_id,),
+    ).fetchone()
+
     return {
         "campaign_id": campaign_id,
         "total": total, "reached": reached, "failed": failed,
+        # format-independent breakdown
+        "with_mobile": with_mobile, "no_mobile": no_mobile,
+        "wa_not_on_whatsapp": (not_on_wa["n"] if not_on_wa else 0) or 0,
+        "outcomes": outcomes,
         "pct": round(100.0 * reached / total, 1) if total else 0.0,
         # message tracking
         "wa_sent": wa_attempted + wa_deliv + wa_read,
