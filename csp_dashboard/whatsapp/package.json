@@ -6,9 +6,16 @@
   "scripts": {
     "start": "node wa_server.js"
   },
+  "_why_baileys_6": [
+    "PINNED to the 6.x line ON PURPOSE. Baileys 7.x is ESM-only, and wa_server.js",
+    "is CommonJS (require), so a fresh install on a new CSP failed at startup with",
+    "ERR_REQUIRE_ESM and WhatsApp could not run at all. 7.0.0-rc13 was also a",
+    "release CANDIDATE — not something to ship to CSP machines. Do not widen this",
+    "range to ^7 without first converting wa_server.js to ESM (or dynamic import)."
+  ],
   "dependencies": {
     "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "^7.0.0-rc13",
+    "@whiskeysockets/baileys": "^6.7.0",
     "express": "^4.19.2",
     "qrcode": "^1.5.4"
   }
