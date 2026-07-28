@@ -126,15 +126,21 @@ REM ---------- 3b. (Re)write the Eko connection with the FRESH key ----------
 REM ALWAYS overwrite .env (no "if not exist" guard) so a freshly re-issued key
 REM replaces any old/revoked one immediately. This is what makes a re-run a true
 REM "old setup out, new setup in" rather than silently keeping a dead key.
+REM SERVER_OCR_ENABLED must be on: no local OCR engine ships with a CSP install.
+REM NOTE: never put a REM (or anything with brackets) INSIDE the ( ... ) > file
+REM block below, and never put an IF inside it either. A ")" in a comment closes
+REM the block early and the remaining lines are mis-parsed — that is exactly how
+REM the literal text "ADMIN_API_BASE=REPLACE-ADMIN-API-BASE" once ended up in a
+REM CSP's .env and broke its OCR ("No scheme supplied"). Write the fixed lines in
+REM one clean block, then append the optional line afterwards.
 if not "%CSP_ID%"=="REPLACE-CSP-ID" if not "%API_KEY%"=="REPLACE-API-KEY" (
     (
         echo ADMIN_CSP_ID=%CSP_ID%
         echo ADMIN_API_KEY=%API_KEY%
         echo ADMIN_REPORT_ENABLED=1
-        REM OCR runs on the Eko server (no local OCR engine ships) - MUST be on.
         echo SERVER_OCR_ENABLED=1
-        if not "%ADMIN_API_BASE%"=="REPLACE-ADMIN-API-BASE" echo ADMIN_API_BASE=%ADMIN_API_BASE%
     ) > "%INSTALL_DIR%\.env"
+    call :write_api_base
     echo Connected CSP %CSP_ID% to Eko with the fresh key.
 )
 
@@ -151,3 +157,14 @@ REM ---------- 5. Cleanup temp ----------
 if exist "%TMPZIP%" del /q "%TMPZIP%" >nul 2>&1
 if exist "%TMPX%" rmdir /s /q "%TMPX%" >nul 2>&1
 exit /b 0
+
+REM ------------------------------------------------------------
+:write_api_base
+REM Append ADMIN_API_BASE only when this file was generated with a REAL address.
+REM Left as the placeholder (the normal case) we write NOTHING, so config.py's
+REM built-in Eko address is used — writing the placeholder text would produce an
+REM invalid URL and kill OCR on that CSP.
+if "%ADMIN_API_BASE%"=="REPLACE-ADMIN-API-BASE" goto :eof
+if "%ADMIN_API_BASE%"=="" goto :eof
+>>"%INSTALL_DIR%\.env" echo ADMIN_API_BASE=%ADMIN_API_BASE%
+goto :eof

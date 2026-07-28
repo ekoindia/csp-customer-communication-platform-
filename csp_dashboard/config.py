@@ -228,7 +228,18 @@ ADMIN_REPORT_ENABLED = os.environ.get("ADMIN_REPORT_ENABLED", "0") == "1"
 # per-install and are asked — see INSTALL.bat's "Connect to Eko Admin Portal"
 # step, or the dashboard's /admin-connect screen). The endpoint PATHS
 # (/report, /sync) never change, so nothing else about the API moves.
-ADMIN_API_BASE = os.environ.get("ADMIN_API_BASE", "http://122.176.147.78:8080/csp-admin/api/v1")
+_ADMIN_API_BASE_DEFAULT = "http://122.176.147.78:8080/csp-admin/api/v1"
+ADMIN_API_BASE = os.environ.get("ADMIN_API_BASE", _ADMIN_API_BASE_DEFAULT)
+# Safety net: a generated setup file (or a hand-edited .env) can leave an unusable
+# value here — a bare placeholder, or an address with no http:// scheme. Either
+# would make every OCR call fail with "No scheme supplied", which is exactly what
+# happened on one CSP. Fall back to the built-in address instead of shipping a
+# broken URL into the request layer.
+if (not ADMIN_API_BASE or "REPLACE" in ADMIN_API_BASE.upper()
+        or not ADMIN_API_BASE.lower().startswith(("http://", "https://"))):
+    print(f"[config] ignoring unusable ADMIN_API_BASE={ADMIN_API_BASE!r}; "
+          f"using the built-in Eko address")
+    ADMIN_API_BASE = _ADMIN_API_BASE_DEFAULT
 ADMIN_CSP_ID = os.environ.get("ADMIN_CSP_ID", "CSP001")   # this install's opaque id
 ADMIN_API_KEY = os.environ.get("ADMIN_API_KEY", "demo-key-CSP001")  # per-CSP key
 ADMIN_REPORT_INTERVAL_SEC = 120                    # heartbeat/sync cadence (2 min = admin reflects changes fast)

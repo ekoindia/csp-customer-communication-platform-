@@ -69,3 +69,37 @@ def test_check_whatsapp_reports_registration(monkeypatch):
                         lambda *a, **k: _Resp(200, {"ok": True, "on_whatsapp": False}))
     r = dispatcher.check_whatsapp("9876543210")
     assert r["ok"] is True and r["on_whatsapp"] is False
+
+
+# ── Config safety net: an unusable ADMIN_API_BASE must not reach the request layer
+
+@pytest.mark.parametrize("bad", ["REPLACE-ADMIN-API-BASE",
+                                 "/REPLACE-ADMIN-API-BASE/api/v1",
+                                 "122.176.147.78:8080/csp-admin/api/v1",   # no scheme
+                                 ""])
+def test_unusable_admin_api_base_falls_back(bad, monkeypatch):
+    """A generated setup file once wrote the literal placeholder into .env and
+    every OCR call died with "No scheme supplied". config must refuse such a value
+    and use the built-in address instead."""
+    import importlib
+    import config as cfg
+    monkeypatch.setenv("ADMIN_API_BASE", bad)
+    importlib.reload(cfg)
+    try:
+        assert cfg.ADMIN_API_BASE.startswith("http")
+        assert "REPLACE" not in cfg.ADMIN_API_BASE.upper()
+    finally:
+        monkeypatch.delenv("ADMIN_API_BASE", raising=False)
+        importlib.reload(cfg)
+
+
+def test_valid_admin_api_base_is_kept(monkeypatch):
+    import importlib
+    import config as cfg
+    monkeypatch.setenv("ADMIN_API_BASE", "https://admin.eko.co.in/api/v1")
+    importlib.reload(cfg)
+    try:
+        assert cfg.ADMIN_API_BASE == "https://admin.eko.co.in/api/v1"
+    finally:
+        monkeypatch.delenv("ADMIN_API_BASE", raising=False)
+        importlib.reload(cfg)

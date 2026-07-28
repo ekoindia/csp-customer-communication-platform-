@@ -194,12 +194,13 @@ if not exist ".env" (
     set /p CSPID="  CSP ID: "
     set /p APIKEY="  API Key: "
     if not "!CSPID!"=="" if not "!APIKEY!"=="" (
+        REM SERVER_OCR_ENABLED must be on - no local OCR engine ships with a CSP
+        REM install. Keep comments OUT of the ( ... ) > file block: a ")" inside a
+        REM comment closes the block early and the rest is mis-parsed.
         (
             echo ADMIN_CSP_ID=!CSPID!
             echo ADMIN_API_KEY=!APIKEY!
             echo ADMIN_REPORT_ENABLED=1
-            REM OCR runs on the Eko server (no local OCR engine ships) - required
-            REM or scanned uploads extract 0 rows.
             echo SERVER_OCR_ENABLED=1
         ) > ".env"
         echo   Saved - this install will report to Eko's admin portal.
