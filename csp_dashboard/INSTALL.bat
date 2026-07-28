@@ -162,11 +162,28 @@ if errorlevel 1 (
 echo [OK] Dependencies verified ^(all critical libraries import^).
 
 REM ---------- 5. WhatsApp bridge dependencies ----------
+REM Baileys 6.x (the stable, CommonJS line we ship) pulls `libsignal` from a
+REM git+https URL, so `npm install` needs GIT on PATH. A plain CSP machine has no
+REM git, and npm then dies with "spawn git ENOENT" and the WhatsApp bridge can
+REM never start. We fetch PORTABLE MinGit into the install folder (no system
+REM install, no admin, nothing added to the machine's PATH permanently) and put it
+REM on PATH just for this npm run.
 where node >nul 2>&1 && (
+    call :ensure_git
     echo Installing WhatsApp bridge dependencies ...
     pushd whatsapp
     call npm install
+    if errorlevel 1 (
+        echo [!] WhatsApp dependency install failed - retrying once ...
+        call npm install
+    )
     popd
+    if exist "whatsapp\node_modules\@whiskeysockets\baileys\package.json" (
+        echo [OK] WhatsApp bridge dependencies ready.
+    ) else (
+        echo [!] WhatsApp bridge dependencies are NOT installed - the dashboard
+        echo     still works; WhatsApp sending can be fixed later ^(see README^).
+    )
 )
 
 REM ---------- 6. Readiness check ----------
@@ -291,6 +308,37 @@ REM the known all-users/per-user install dirs, then a bare `python` if it is 3.1
 for /f "delims=" %%P in ('py -3.11 -c "import sys;print(sys.executable)" 2^>nul') do set "PY=%%P"
 if not defined PY for %%D in ("%ProgramFiles%\Python311" "%LOCALAPPDATA%\Programs\Python\Python311" "%ProgramFiles%\Python312" "%LOCALAPPDATA%\Programs\Python\Python312") do if exist "%%~D\python.exe" set "PY=%%~D\python.exe"
 if not defined PY ( python -c "import sys;raise SystemExit(0 if (3,10)<=sys.version_info[:2]<=(3,12) else 1)" >nul 2>&1 && set "PY=python" )
+goto :eof
+
+REM ------------------------------------------------------------
+:ensure_git
+REM npm needs git ONLY to fetch Baileys' libsignal dependency. Rather than force a
+REM full Git-for-Windows install on a CSP machine, download PORTABLE MinGit (~45 MB
+REM zip) into the install folder and add it to PATH for this session only. The
+REM asset URL is discovered from the official git-for-windows release feed, so
+REM there is no hard-coded version to rot.
+where git >nul 2>&1 && goto :eof
+if exist "%INSTALL_DIR%\tools\mingit\cmd\git.exe" (
+    set "PATH=%INSTALL_DIR%\tools\mingit\cmd;%PATH%"
+    goto :eof
+)
+echo Fetching portable git ^(needed by npm for the WhatsApp bridge^) ...
+powershell -NoProfile -Command ^
+  "try{ [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12;" ^
+  "$r=Invoke-RestMethod 'https://api.github.com/repos/git-for-windows/git/releases/latest' -UseBasicParsing;" ^
+  "$a=$r.assets | Where-Object { $_.name -like 'MinGit-*-64-bit.zip' } | Select-Object -First 1;" ^
+  "if(-not $a){ exit 1 };" ^
+  "Invoke-WebRequest $a.browser_download_url -OutFile '%TEMP%\mingit.zip' -UseBasicParsing;" ^
+  "New-Item -ItemType Directory -Force '%INSTALL_DIR%\tools\mingit' | Out-Null;" ^
+  "Expand-Archive -Path '%TEMP%\mingit.zip' -DestinationPath '%INSTALL_DIR%\tools\mingit' -Force;" ^
+  "Remove-Item '%TEMP%\mingit.zip' -Force }catch{ Write-Host $_.Exception.Message; exit 1 }"
+if exist "%INSTALL_DIR%\tools\mingit\cmd\git.exe" (
+    set "PATH=%INSTALL_DIR%\tools\mingit\cmd;%PATH%"
+    echo [OK] Portable git ready.
+) else (
+    echo [!] Could not fetch portable git - the WhatsApp bridge deps may fail.
+    echo     The dashboard/OCR still work without it.
+)
 goto :eof
 
 REM ------------------------------------------------------------
