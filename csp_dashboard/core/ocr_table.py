@@ -588,6 +588,104 @@ def _onnxtr_words(gray_np: np.ndarray):
     return words or None
 
 
+# ── Process-time multi-pass extraction (RAM only, nothing persisted) ──────────
+# The accuracy gap we actually have is MISSED ROWS on a dense/faint scan (e.g. 50
+# of 52). A second look at the SAME page with different pre-processing finds rows
+# the first pass' detector missed; the two row sets are then merged in memory and
+# the page image is dropped. No embeddings, no vector store, no LLM, nothing
+# written anywhere — it is purely "look again while we still have the page".
+#
+# Cost is real: a second pass roughly DOUBLES per-page time on a CPU-only server.
+# So config.OCR_SECOND_PASS controls it:
+#   "off"      (default) — single pass, today's behaviour and cost
+#   "adaptive" — second pass ONLY when pass 1 looks short of the page's own row
+#                bands (cheap on clean pages, extra effort where it's needed)
+#   "always"   — always two passes (benchmarking / a known-bad scanner)
+
+def _row_key(row: dict) -> str:
+    """Identity of an extracted row for merging: the account number (digits only)
+    when present, else name+mobile. Never leaves this process."""
+    acct = re.sub(r"\D", "", str(row.get("account_number") or ""))
+    if acct:
+        return f"a:{acct}"
+    return ("n:" + str(row.get("name") or "").strip().upper()
+            + "|" + re.sub(r"\D", "", str(row.get("mobile") or "")))
+
+
+def merge_row_sets(primary: list, extra: list) -> tuple:
+    """Merge a second pass into the first, keeping the FIRST pass's version of a
+    row it already found (it ran on the unmodified image) and appending only rows
+    the first pass missed. Returns (merged_rows, added_count)."""
+    merged = list(primary or [])
+    seen = {_row_key(r) for r in merged}
+    added = 0
+    for r in (extra or []):
+        k = _row_key(r)
+        if k in seen or k in ("n:|", "a:"):
+            continue
+        seen.add(k)
+        merged.append(r)
+        added += 1
+    return merged, added
+
+
+def _enhanced_copy(pil_img):
+    """A second view of the same page: upscaled + locally contrast-equalised, so
+    faint/thin rows the detector skipped become detectable. Transient."""
+    from PIL import Image as _I
+    arr = np.array(pil_img.convert("L"))
+    try:
+        clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
+        arr = clahe.apply(arr)
+    except Exception:
+        pass
+    h, w = arr.shape[:2]
+    scale = 1.5 if max(h, w) < 4000 else 1.0      # don't blow up an already huge page
+    if scale != 1.0:
+        arr = cv2.resize(arr, (int(w * scale), int(h * scale)),
+                         interpolation=cv2.INTER_CUBIC)
+    return _I.fromarray(arr)
+
+
+def _looks_short(gray_np, n_rows: int) -> bool:
+    """Does pass 1 look like it missed rows? Compare rows found against the row
+    BANDS the page's own horizontal structure suggests."""
+    try:
+        bands = max(0, len(_row_band_edges(gray_np)) - 1)
+    except Exception:
+        return False
+    return bands >= 5 and n_rows < int(bands * 0.9)
+
+
+def extract_rows_adaptive(pil_img, angle: int = None) -> dict:
+    """Extract one page's rows, optionally taking a SECOND look (see above).
+    Returns {"rows": [...], "passes": n, "added": n} — the caller reports the
+    extra rows so a CSP can see the second pass earned its cost."""
+    import config
+    mode = str(getattr(config, "OCR_SECOND_PASS", "off")).lower()
+    oriented, rows, used_angle = extract_with_image(pil_img, angle)
+    out = {"rows": rows, "passes": 1, "added": 0}
+    if mode not in ("adaptive", "always"):
+        return out
+    try:
+        if mode == "adaptive" and not _looks_short(np.array(oriented), len(rows)):
+            return out
+        second = _enhanced_copy(oriented)
+        try:
+            _, rows2, _ = extract_with_image(second, 0)
+        finally:
+            try:
+                second.close()
+            except Exception:
+                pass
+        merged, added = merge_row_sets(rows, rows2)
+        out.update(rows=merged, passes=2, added=added)
+        print(f"[ocr] second pass added {added} row(s)")
+    except Exception as e:      # a failed second look must never lose pass 1
+        print(f"[ocr] second pass skipped ({e})")
+    return out
+
+
 # Benchmark/testing hook: when set to "rapidocr", "paddle", "doctr" or "onnxtr", _page_words
 # uses ONLY that engine with no fallback, so scripts/ocr_benchmark.py can compare
 # engines head-to-head on the same page. Left None in normal operation.

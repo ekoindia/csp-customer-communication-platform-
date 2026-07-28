@@ -170,10 +170,13 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
     """OCR implementation after the server engine has been pinned."""
     if file_type == "image":
         from PIL import Image
-        from core.ocr_table import extract_rows_from_pil
+        from core.ocr_table import extract_rows_adaptive
         img = Image.open(io.BytesIO(file_bytes))
         try:
-            return extract_rows_from_pil(img), 1
+            # adaptive = optionally take a SECOND look at the same page in RAM to
+            # recover rows the detector missed (config.OCR_SECOND_PASS; off by
+            # default because it doubles per-page CPU time). Nothing is stored.
+            return extract_rows_adaptive(img)["rows"], 1
         finally:
             try:
                 img.close()
@@ -186,7 +189,7 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
     import gc
     import config
     import pypdfium2 as pdfium
-    from core.ocr_table import extract_rows_from_pil
+    from core.ocr_table import extract_rows_adaptive
 
     rows = []
     pdf = pdfium.PdfDocument(file_bytes)
@@ -203,7 +206,7 @@ def _extract_ocr_rows_with_engine(file_bytes: bytes, file_type: str, page_from=N
             bitmap = page.render(scale=scale)
             pil = bitmap.to_pil()
             try:
-                rows.extend(extract_rows_from_pil(pil))
+                rows.extend(extract_rows_adaptive(pil)["rows"])
             finally:
                 try:
                     pil.close()

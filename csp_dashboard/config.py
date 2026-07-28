@@ -174,6 +174,14 @@ SERVER_OCR_RETRIES = int(os.environ.get("SERVER_OCR_RETRIES", "2"))
 # The centralized OCR path forces this on automatically; the 4 GB box keeps the
 # small bundled models (OCR_ONNXTR_HEAVY stays 0 there). VLM-class OCR is NOT
 # used: no GPU, so it would be minutes per page.
+# Process-time SECOND LOOK at a page (see core/ocr_table.extract_rows_adaptive).
+# Our real gap is missed rows on dense/faint scans; a second pass with different
+# pre-processing finds some of them and the row sets are merged IN MEMORY (no
+# storage, no embeddings, no LLM). It roughly DOUBLES per-page CPU time, so it is
+# OFF until measured on a real page:
+#   off | adaptive (only when pass 1 looks short of the page's row bands) | always
+OCR_SECOND_PASS = os.environ.get("OCR_SECOND_PASS", "off").lower()
+
 OCR_ONNXTR_HEAVY = os.environ.get("OCR_ONNXTR_HEAVY", "0") == "1"
 ONNXTR_DET_ARCH = os.environ.get("ONNXTR_DET_ARCH", "db_resnet50")    # detection
 ONNXTR_RECO_ARCH = os.environ.get("ONNXTR_RECO_ARCH", "parseq")       # recognition
