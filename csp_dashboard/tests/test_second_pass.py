@@ -96,3 +96,20 @@ def test_second_pass_failure_keeps_first_pass(monkeypatch):
     monkeypatch.setattr(ocr_table, "extract_with_image", _fake)
     out = ocr_table.extract_rows_adaptive(Image.new("L", (60, 60), 255))
     assert out["passes"] == 1 and len(out["rows"]) == 1
+
+
+# ── Heavy model weights: download only where explicitly allowed ───────────────
+
+def test_heavy_weights_refused_without_download_permission(monkeypatch, tmp_path):
+    """A CSP box must never start fetching ~190 MB of model weights on its own —
+    it refuses with an actionable message instead."""
+    pytest.importorskip("onnxtr")
+    import config
+    monkeypatch.setattr(config, "OCR_ALLOW_MODEL_DOWNLOAD", "0", raising=False)
+    monkeypatch.setattr(config, "ONNXTR_DET_HEAVY_PATH", str(tmp_path / "nope_det.onnx"),
+                        raising=False)
+    monkeypatch.setattr(config, "ONNXTR_RECO_HEAVY_PATH", str(tmp_path / "nope_reco.onnx"),
+                        raising=False)
+    with pytest.raises(FileNotFoundError) as ei:
+        ocr_table._build_heavy_onnxtr(lambda **k: None)
+    assert "OCR_ALLOW_MODEL_DOWNLOAD" in str(ei.value)

@@ -182,6 +182,12 @@ SERVER_OCR_RETRIES = int(os.environ.get("SERVER_OCR_RETRIES", "2"))
 #   off | adaptive (only when pass 1 looks short of the page's row bands) | always
 OCR_SECOND_PASS = os.environ.get("OCR_SECOND_PASS", "off").lower()
 
+# May this machine DOWNLOAD OCR model weights it doesn't have? Only the Eko OCR
+# server should (it has internet and wants the accurate heavy models); a CSP box
+# must never fetch models on its own. Weights are software — no customer data is
+# involved either way.
+OCR_ALLOW_MODEL_DOWNLOAD = os.environ.get("OCR_ALLOW_MODEL_DOWNLOAD", "0")
+
 OCR_ONNXTR_HEAVY = os.environ.get("OCR_ONNXTR_HEAVY", "0") == "1"
 ONNXTR_DET_ARCH = os.environ.get("ONNXTR_DET_ARCH", "db_resnet50")    # detection
 ONNXTR_RECO_ARCH = os.environ.get("ONNXTR_RECO_ARCH", "parseq")       # recognition

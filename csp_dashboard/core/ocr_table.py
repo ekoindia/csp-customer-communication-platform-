@@ -536,14 +536,32 @@ def _build_heavy_onnxtr(ocr_predictor):
     base = os.path.join(os.path.dirname(os.path.abspath(__file__)), "models")
     det_p = getattr(config, "ONNXTR_DET_HEAVY_PATH", "") or os.path.join(base, "db_resnet50.onnx")
     reco_p = getattr(config, "ONNXTR_RECO_HEAVY_PATH", "") or os.path.join(base, "parseq.onnx")
-    if not (os.path.isfile(det_p) and os.path.isfile(reco_p)):
-        raise FileNotFoundError("heavy onnx weights (db_resnet50/parseq) not bundled")
+    bundled = os.path.isfile(det_p) and os.path.isfile(reco_p)
+    # The heavy weights (~190 MB) are deliberately NOT committed, so on a machine
+    # that doesn't carry them we can either fetch them once from OnnxTR's own
+    # published models, or refuse. Fetching is allowed ONLY where it's wanted (the
+    # Eko OCR server, which has internet) via OCR_ALLOW_MODEL_DOWNLOAD — a CSP box
+    # must never start downloading models on its own. This is SOFTWARE, not data:
+    # nothing about a customer leaves the machine.
+    allow_dl = str(getattr(config, "OCR_ALLOW_MODEL_DOWNLOAD", "0")).lower() in ("1", "true", "yes")
+    if not bundled and not allow_dl:
+        raise FileNotFoundError(
+            "heavy onnx weights (db_resnet50/parseq) are not present. Set "
+            "OCR_ALLOW_MODEL_DOWNLOAD=1 on the OCR server to fetch them once, "
+            "or place the .onnx files in core/models/.")
     so = ort.SessionOptions()
     so.intra_op_num_threads = int(getattr(config, "TORCH_MAX_THREADS", 6))
     so.inter_op_num_threads = 1
     cfg = EngineConfig(providers=["CPUExecutionProvider"], session_options=so)
-    det = db_resnet50(model_path=det_p, engine_cfg=cfg)
-    reco = parseq(model_path=reco_p, engine_cfg=cfg)
+    if bundled:
+        det = db_resnet50(model_path=det_p, engine_cfg=cfg)
+        reco = parseq(model_path=reco_p, engine_cfg=cfg)
+    else:
+        # No model_path -> OnnxTR downloads its official weights and caches them
+        # (~/.cache/onnxtr), so this costs the download only on the first build.
+        print("[ocr] heavy weights not bundled; fetching OnnxTR db_resnet50 + parseq once")
+        det = db_resnet50(engine_cfg=cfg)
+        reco = parseq(engine_cfg=cfg)
     reco_bs = int(getattr(config, "ONNXTR_RECO_BS", 16))
     return ocr_predictor(det_arch=det, reco_arch=reco, assume_straight_pages=True,
                          reco_bs=reco_bs, det_bs=1)
