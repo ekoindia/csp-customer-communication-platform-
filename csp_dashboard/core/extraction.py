@@ -484,6 +484,11 @@ def _try_server_ocr(path: str, file_type: str, page_from: int = None,
                                                  page_to, progress=progress)
         from core.ocr_excel import xlsx_bytes_to_rows
         rows = xlsx_bytes_to_rows(result.get("xlsx_bytes") or b"")
+        # PARTIAL SUCCESS: pages that failed are reported, never hidden — the CSP
+        # keeps the rows that WERE read and knows exactly which pages to redo.
+        for fp in (result.get("failed_pages") or [])[:10]:
+            _diag(f"Page {fp.get('page')} could not be read: {fp.get('reason')}. "
+                  f"The other pages were kept — re-upload just that page if needed.")
         if not rows:
             # Say exactly WHAT was sent — a tiny/blank render and a genuinely
             # unreadable scan look identical from the outside otherwise.

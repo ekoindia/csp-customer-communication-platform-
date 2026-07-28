@@ -291,10 +291,17 @@ def test_pdf_is_sent_one_page_per_request_and_combined(tmp_path, monkeypatch):
     from core import server_ocr_client
     from core.ocr_excel import xlsx_bytes_to_rows
 
-    # a real 3-page PDF
-    img = Image.new("RGB", (200, 120), "white")
+    # A real 3-page PDF with DISTINCT pages — identical pages are deliberately
+    # OCR'd once (per-upload dedup), which would mask the per-page chunking this
+    # test is about.
+    from PIL import ImageDraw
+    pages = []
+    for t in ("PAGE ONE", "PAGE TWO", "PAGE THREE"):
+        im = Image.new("RGB", (200, 120), "white")
+        ImageDraw.Draw(im).text((10, 10), t, fill="black")
+        pages.append(im)
     buf = _io.BytesIO()
-    img.save(buf, "PDF", save_all=True, append_images=[img, img])
+    pages[0].save(buf, "PDF", save_all=True, append_images=pages[1:])
     pdf = tmp_path / "scan.pdf"
     pdf.write_bytes(buf.getvalue())
 
@@ -474,3 +481,75 @@ def test_check_connection_unreachable(monkeypatch):
     monkeypatch.setattr(s.requests, "get", _boom)
     r = s.check_connection()
     assert r["ok"] is False and r["status"] == "unreachable"
+
+
+# ── Multi-page resilience: partial success + per-upload page dedup ────────────
+
+def _make_pdf(path, pages):
+    """pages: list of texts; identical text -> identical rendered page bytes."""
+    from PIL import Image, ImageDraw
+    imgs = []
+    for t in pages:
+        im = Image.new("RGB", (600, 400), "white")
+        ImageDraw.Draw(im).text((20, 20), t, fill="black")
+        imgs.append(im)
+    imgs[0].save(str(path), "PDF", save_all=True, append_images=imgs[1:])
+    return str(path)
+
+
+def _cfg_server(monkeypatch):
+    import config
+    from core import server_ocr_client as s
+    for k, v in dict(SERVER_OCR_ENABLED=True, ADMIN_API_BASE="http://x/api/v1",
+                     ADMIN_CSP_ID="CSP9", ADMIN_API_KEY="realkey1234",
+                     SERVER_OCR_PARALLEL=4, SERVER_OCR_RENDER_DPI=100).items():
+        monkeypatch.setattr(config, k, v, raising=False)
+    return s
+
+
+def test_one_bad_page_keeps_the_other_pages(tmp_path, monkeypatch):
+    """Previously a single failing page raised and the WHOLE upload came back
+    empty — 28 good pages were thrown away with the 1 bad one."""
+    s = _cfg_server(monkeypatch)
+    pdf = _make_pdf(tmp_path / "t.pdf", ["PAGE ONE", "PAGE TWO", "PAGE THREE"])
+    calls = {"n": 0}
+
+    def _flaky(blob, timeout, retries):
+        calls["n"] += 1
+        if calls["n"] == 2:
+            raise s.ServerOcrError("simulated page failure")
+        return [{"account_number": f"A{calls['n']}", "name": "X"}]
+
+    monkeypatch.setattr(s, "_send_image", _flaky)
+    res = s.extract_file(pdf, "pdf")
+    assert res["page_count"] == 3
+    assert res["row_count"] == 2                     # the two good pages survived
+    assert len(res["failed_pages"]) == 1
+    assert "simulated" in res["failed_pages"][0]["reason"]
+
+
+def test_identical_pages_are_ocrd_once(tmp_path, monkeypatch):
+    """A page appended twice must cost ONE server call, not two."""
+    s = _cfg_server(monkeypatch)
+    pdf = _make_pdf(tmp_path / "d.pdf", ["SAME PAGE", "SAME PAGE", "OTHER"])
+    sent = {"n": 0}
+
+    def _count(blob, timeout, retries):
+        sent["n"] += 1
+        return [{"account_number": f"A{sent['n']}", "name": "X"}]
+
+    monkeypatch.setattr(s, "_send_image", _count)
+    res = s.extract_file(pdf, "pdf")
+    assert sent["n"] == 2            # 3 pages, only 2 distinct
+    assert res["page_count"] == 3
+    assert res["row_count"] == 3     # duplicate page still contributes its row
+
+
+def test_all_pages_failing_reports_every_reason(tmp_path, monkeypatch):
+    s = _cfg_server(monkeypatch)
+    pdf = _make_pdf(tmp_path / "f.pdf", ["A", "B"])
+    monkeypatch.setattr(s, "_send_image",
+                        lambda *a, **k: (_ for _ in ()).throw(s.ServerOcrError("down")))
+    res = s.extract_file(pdf, "pdf")
+    assert res["row_count"] == 0
+    assert len(res["failed_pages"]) == 2

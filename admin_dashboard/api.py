@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 import base64
 import hmac
 import io
+import os
 import threading
 import time
 import uuid
@@ -41,13 +42,27 @@ _OCR_SEM_LOCK = threading.Lock()
 
 
 def _ocr_semaphore():
+    """Cap simultaneous OCR jobs. Sized from the machine's ACTUAL cores rather
+    than a fixed number: OCR here is CPU-bound (no GPU), so the useful ceiling is
+    roughly the core count — too low wastes a big box, too high just thrashes and
+    slows every request. RAM is not the limit on this server (125 GB); cores are.
+    An explicit SERVER_OCR_MAX_CONCURRENCY still wins when set, and we always
+    leave 2 cores for the portal/heartbeats so OCR can't starve them."""
     global _OCR_SEMAPHORE
     if _OCR_SEMAPHORE is None:
         with _OCR_SEM_LOCK:
             if _OCR_SEMAPHORE is None:
                 import config
-                n = max(1, int(getattr(config, "SERVER_OCR_MAX_CONCURRENCY", 2)))
+                explicit = os.environ.get("SERVER_OCR_MAX_CONCURRENCY")
+                if explicit:
+                    n = max(1, int(explicit))
+                else:
+                    cores = os.cpu_count() or 4
+                    n = max(1, min(cores - 2, 16))
+                    # never below whatever config asks for as a floor
+                    n = max(n, int(getattr(config, "SERVER_OCR_MAX_CONCURRENCY", 2)))
                 _OCR_SEMAPHORE = threading.BoundedSemaphore(n)
+                print(f"[ocr] concurrency limit = {n} (cores={os.cpu_count()})")
     return _OCR_SEMAPHORE
 
 

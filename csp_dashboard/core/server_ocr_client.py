@@ -28,6 +28,13 @@ class ServerOcrError(Exception):
     """Centralized OCR is unavailable or returned an invalid result."""
 
 
+def _page_hash(png_bytes: bytes) -> str:
+    """Content hash of a rendered page, used ONLY to avoid OCR'ing the identical
+    page twice inside one upload. Never stored, never sent anywhere."""
+    import hashlib
+    return hashlib.sha256(png_bytes).hexdigest()
+
+
 class _Retryable(Exception):
     """A transient failure worth retrying before giving up to local OCR."""
 
@@ -219,6 +226,10 @@ def extract_file(path: str, file_type: str, page_from: int = None,
         parallel = min(parallel, 2)   # can't measure -> stay conservative
     all_rows = []
     sent_info = None   # what the FIRST page render actually looked like
+    page_rows = {}     # page-image hash -> rows (dedup within THIS upload only)
+    page_errors = {}   # page-image hash -> why that page could not be read
+    counted_errors = set()
+    failed_pages = []  # [{page, reason}] — reported, never silently swallowed
     with open(path, "rb") as f:
         pdf = pdfium.PdfDocument(f.read())
     try:
@@ -270,19 +281,50 @@ def extract_file(path: str, file_type: str, page_from: int = None,
                     except Exception:
                         pass
                     gc.collect()
-            if len(pngs) == 1:
-                wave_rows = [_send_image(pngs[0], timeout, retries)]
+            # DEDUP: the same page can appear twice in one upload (a page scanned
+            # or appended twice). Identical bytes -> OCR it ONCE and reuse the
+            # rows. Pure compute saving; nothing is stored anywhere.
+            todo = [(h, b) for h, b in
+                    {h: b for h, b in ((_page_hash(b), b) for b in pngs)
+                     if h not in page_rows}.items()]
+
+            def _read_one(item):
+                h, blob = item
+                try:
+                    return h, _send_image(blob, timeout, retries), None
+                except ServerOcrError as e:
+                    # FAULT TOLERANCE: one bad page must not lose the whole
+                    # upload. Previously this exception escaped and the CSP got
+                    # 0 rows even when 28 of 29 pages had been read fine.
+                    return h, [], str(e)
+
+            if len(todo) == 1:
+                results = [_read_one(todo[0])]
+            elif todo:
+                with ThreadPoolExecutor(max_workers=len(todo)) as ex:
+                    results = list(ex.map(_read_one, todo))
             else:
-                with ThreadPoolExecutor(max_workers=len(pngs)) as ex:
-                    wave_rows = list(ex.map(
-                        lambda b: _send_image(b, timeout, retries), pngs))
-            for rows_i in wave_rows:          # ex.map preserves page order
-                all_rows.extend(rows_i)
+                results = []
+            for h, rows_i, err in results:
+                page_rows[h] = rows_i
+                if err:
+                    page_errors[h] = err
+
+            # Assemble in PAGE ORDER (dedup/parallelism must not reorder rows).
+            for pno, blob in zip(wave, pngs):
+                h = _page_hash(blob)
+                if h in page_errors and h not in counted_errors:
+                    counted_errors.add(h)
+                    failed_pages.append({"page": pno + 1, "reason": page_errors[h]})
+                all_rows.extend(page_rows.get(h) or [])
             done += len(wave)
             if progress:
-                progress(int(done / n * 1000), 1000,
-                         f"Eko OCR: {done} of {n} pages ({len(all_rows)} rows)")
+                msg = f"Eko OCR: {done} of {n} pages ({len(all_rows)} rows)"
+                if failed_pages:
+                    msg += f" — {len(failed_pages)} page(s) could not be read"
+                progress(int(done / n * 1000), 1000, msg)
         return {"xlsx_bytes": rows_to_xlsx_bytes(all_rows), "page_count": n,
-                "row_count": len(all_rows), "sent_info": sent_info}
+                "row_count": len(all_rows), "sent_info": sent_info,
+                "failed_pages": failed_pages}
     finally:
         pdf.close()
