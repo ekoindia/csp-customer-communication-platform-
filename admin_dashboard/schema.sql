@@ -88,6 +88,24 @@ CREATE TABLE IF NOT EXISTS progress (
 -- Why cases ended, independent of the document's columns (reactivated,
 -- deceased, moved_away, wrong_contact, refused, account_closed, other,
 -- not_recorded). Counts only — never an identifier.
+-- GENERIC category groupings: whichever dimensions a CSP's bank list actually
+-- carries (balance band / village / taluka / ...). Storing the dimension NAME
+-- alongside the value is what lets the admin UI render breakdowns dynamically
+-- instead of hard-coding one format's columns (balance band only exists in some
+-- lists). Counts only — never an identifier.
+CREATE TABLE IF NOT EXISTS progress_categories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    csp_id      TEXT NOT NULL,
+    campaign_id TEXT,
+    month       TEXT,
+    dimension   TEXT NOT NULL,
+    value       TEXT NOT NULL,
+    total       INTEGER NOT NULL DEFAULT 0,
+    reached     INTEGER NOT NULL DEFAULT 0,
+    updated_at  TEXT,
+    UNIQUE(csp_id, campaign_id, month, dimension, value)
+);
+
 CREATE TABLE IF NOT EXISTS progress_outcomes (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,
     csp_id      TEXT NOT NULL,

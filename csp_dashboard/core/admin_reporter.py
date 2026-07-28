@@ -168,6 +168,10 @@ def _campaign_progress(conn, campaign_id: str) -> dict:
         "with_mobile": with_mobile, "no_mobile": no_mobile,
         "wa_not_on_whatsapp": (not_on_wa["n"] if not_on_wa else 0) or 0,
         "outcomes": outcomes,
+        # GENERIC category groupings — whichever dimensions this bank list
+        # actually carries (band / village / taluka). The admin renders whatever
+        # comes back instead of assuming one particular format's columns.
+        "categories": _categories(campaign_id),
         "pct": round(100.0 * reached / total, 1) if total else 0.0,
         # message tracking
         "wa_sent": wa_attempted + wa_deliv + wa_read,
@@ -183,6 +187,16 @@ def _campaign_progress(conn, campaign_id: str) -> dict:
         "earnings": 0,          # placeholder until commission formula (EDR-1)
         "bands": bands,
     }
+
+
+def _categories(campaign_id: str) -> list:
+    """Generic category groupings for this campaign (counts only). Never raises —
+    reporting must not break because one grouping query failed."""
+    try:
+        from database.queries import dimension_breakdown
+        return dimension_breakdown(campaign_id)
+    except Exception:
+        return []
 
 
 def _campaigns() -> list:

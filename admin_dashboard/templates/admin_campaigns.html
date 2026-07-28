@@ -64,11 +64,31 @@
   {% endfor %}
   {% endif %}
 
-  {% if r.bands and r.band_csps %}
+  <!-- DYNAMIC groupings: rendered from whatever dimensions the CSPs' bank lists
+       actually carry (balance band / village / taluka / anything added later).
+       Nothing here is hard-coded to one format — a new dimension appears on its
+       own, and a dimension no list carries simply doesn't render. -->
+  {% for cat in r.categories %}
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
+    {{ cat.label }} — reach by group
+    {% if cat.csps and r.csps and cat.csps < r.csps %}
+      <span style="color:var(--soft)">(present in {{ cat.csps }} of {{ r.csps }} CSPs' lists)</span>
+    {% endif %}
+  </p>
+  {% for v in cat['values'] %}
+    <div class="bandrow">
+      <div class="nm">{{ v.value }}</div>
+      <div class="track"><div class="bar"><span style="width:{{ (100 * v.reached / v.total) if v.total else 0 }}%"></span></div></div>
+      <div class="n">{{ v.reached }} / {{ v.total }}</div>
+    </div>
+  {% endfor %}
+  {% endfor %}
+
+  {# Legacy fallback: a CSP still on an older build reports only `bands`. #}
+  {% if not r.categories and r.bands and r.band_csps %}
   <p class="note" style="margin:14px 0 4px;color:var(--soft)">
     Balance-band reach — a category that exists only in SOME bank lists
     ({{ r.band_csps }} of {{ r.csps }} CSP{{ '' if r.csps == 1 else 's' }} in this campaign).
-    Use Contactability and Case outcomes above to compare all CSPs.
   </p>
   {% for b in r.bands %}
     <div class="bandrow">

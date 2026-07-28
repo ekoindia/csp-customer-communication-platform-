@@ -68,3 +68,56 @@ def test_payload_carries_no_identifiers(db):
     assert "9876500001" not in blob
     assert "NAME1" not in blob
     assert "ACC1" not in blob
+
+
+# ── DYNAMIC dimensions: the UI renders whatever the data has ─────────────────
+
+def test_category_breakdown_discovers_only_dimensions_with_data(db):
+    """A bandless list must still produce groupings (village/taluka) — and the
+    band dimension must be absent entirely, not an empty/"NA" bucket."""
+    queries.insert_document("B_BIF", "inoperative_accounts", "f.csv", "csv")
+    for i, (village, band) in enumerate([("Ahiraule", ""), ("Ahiraule", ""),
+                                         ("Belsand", "")], start=1):
+        cid = f"C_DIM_{i}"
+        queries.insert_customer_case(
+            case_id=cid, batch_id="B_BIF", campaign_id="inoperative_accounts",
+            account_number=f"A{i}", name=f"N{i}", mobile="9876500000",
+            father_name=None, balance_band=band, village=village, taluka="Tamkuhi",
+            address="A", band_label=band, tone="normal", template_id="template_1",
+            is_sensitive=False)
+        queries.init_business_tracking(cid)
+
+    cats = queries.dimension_breakdown("inoperative_accounts")
+    dims = {c["dimension"] for c in cats}
+    assert "village" in dims and "taluka" in dims
+    assert "band_label" not in dims          # no band in this list at all
+    villages = {c["value"]: c["total"] for c in cats if c["dimension"] == "village"}
+    assert villages == {"Ahiraule": 2, "Belsand": 1}
+
+
+def test_category_breakdown_includes_band_when_present(db):
+    queries.insert_document("B_BIF", "inoperative_accounts", "f.csv", "csv")
+    for i, band in enumerate(["100<1000", "100<1000", "B>10000"], start=1):
+        cid = f"C_DIM2_{i}"
+        queries.insert_customer_case(
+            case_id=cid, batch_id="B_BIF", campaign_id="inoperative_accounts",
+            account_number=f"B{i}", name=f"N{i}", mobile="9876500000",
+            father_name=None, balance_band=band, village="V", taluka="T",
+            address="A", band_label=band, tone="normal", template_id="template_1",
+            is_sensitive=False)
+        queries.init_business_tracking(cid)
+
+    cats = queries.dimension_breakdown("inoperative_accounts")
+    bands = {c["value"]: c["total"] for c in cats if c["dimension"] == "band_label"}
+    assert bands == {"100<1000": 2, "B>10000": 1}
+
+
+def test_categories_are_in_the_northbound_payload(db):
+    queries.insert_document("B_BIF", "inoperative_accounts", "f.csv", "csv")
+    _case(1)
+    p = _payload(db)
+    assert isinstance(p["categories"], list)
+    assert any(c["dimension"] == "village" for c in p["categories"])
+    # counts only — no identifiers
+    blob = repr(p["categories"])
+    assert "NAME1" not in blob and "9876500000" not in blob

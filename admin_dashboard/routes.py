@@ -298,6 +298,23 @@ def campaigns():
                WHERE COALESCE(NULLIF(TRIM(band),''),'NA') NOT IN ('NA','?')
                GROUP BY campaign_id, month""").fetchall()
         band_csps = {(b["campaign_id"], b["month"]): b["n"] for b in band_cov}
+        # GENERIC category groupings, with the dimension NAME carried through, so
+        # the page renders whatever dimensions the fleet's lists actually have
+        # (band / village / taluka) instead of a hard-coded band chart. `csps`
+        # per dimension shows how much of the campaign each grouping describes.
+        cat_rows = conn.execute(
+            """SELECT campaign_id, month, dimension, value,
+                      SUM(total) total, SUM(reached) reached,
+                      COUNT(DISTINCT csp_id) csps
+               FROM progress_categories
+               GROUP BY campaign_id, month, dimension, value
+               ORDER BY dimension, total DESC""").fetchall()
+        cat_cov = conn.execute(
+            """SELECT campaign_id, month, dimension, COUNT(DISTINCT csp_id) n
+               FROM progress_categories GROUP BY campaign_id, month, dimension"""
+        ).fetchall()
+        cat_csps = {(c["campaign_id"], c["month"], c["dimension"]): c["n"]
+                    for c in cat_cov}
         # Format-INDEPENDENT breakdown: balance band exists only in some bank
         # lists, so outcomes are what let Eko compare CSPs on the same footing.
         outcome_rows = conn.execute(
@@ -330,6 +347,21 @@ def campaigns():
         d = dict(o)
         d["label"] = _OUTCOME_LABELS.get(d["outcome"], d["outcome"])
         outcomes.setdefault((o["campaign_id"], o["month"]), []).append(d)
+    # dimension -> friendly title (unknown dimensions fall back to a tidied name,
+    # so a NEW dimension added later renders without touching this code)
+    _DIM_LABELS = {"band_label": "Balance band", "village": "Village",
+                   "taluka": "Taluka / block"}
+    cats = {}
+    for c in cat_rows:
+        key = (c["campaign_id"], c["month"])
+        dim = c["dimension"]
+        entry = cats.setdefault(key, {}).setdefault(dim, {
+            "dimension": dim,
+            "label": _DIM_LABELS.get(dim, dim.replace("_", " ").title()),
+            "csps": cat_csps.get((c["campaign_id"], c["month"], dim), 0),
+            "values": [],
+        })
+        entry["values"].append(dict(c))
     per_csp = {}
     for c in csp_rows:
         per_csp.setdefault((c["campaign_id"], c["month"]), []).append(dict(c))
@@ -347,6 +379,8 @@ def campaigns():
         # the campaign's CSPs it actually describes.
         d["band_csps"] = band_csps.get((r["campaign_id"], r["month"]), 0)
         d["outcomes"] = outcomes.get((r["campaign_id"], r["month"]), [])
+        # Dynamic groupings actually present in the fleet's data for this campaign.
+        d["categories"] = list(cats.get((r["campaign_id"], r["month"]), {}).values())
         d["per_csp"] = per_csp.get((r["campaign_id"], r["month"]), [])
         data.append(d)
     return render_template("admin_campaigns.html", rows=data)

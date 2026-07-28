@@ -448,6 +448,26 @@ def report():
                  _i(camp, "wa_not_on_whatsapp"),
                  _f(camp, "earnings"), now))
 
+            # GENERIC category groupings: dimension NAME + value, so the admin can
+            # render whatever this CSP's list actually carries (band / village /
+            # taluka) without knowing the format in advance.
+            for ct in (camp.get("categories") or [])[:80]:
+                if not isinstance(ct, dict):
+                    continue
+                dim = str(ct.get("dimension") or "")[:40]
+                val = str(ct.get("value") or "")[:60]
+                if not dim or not val:
+                    continue
+                conn.execute(
+                    """INSERT INTO progress_categories (csp_id, campaign_id, month,
+                           dimension, value, total, reached, updated_at)
+                       VALUES (?,?,?,?,?,?,?,?)
+                       ON CONFLICT(csp_id, campaign_id, month, dimension, value)
+                       DO UPDATE SET total=excluded.total, reached=excluded.reached,
+                           updated_at=excluded.updated_at""",
+                    (csp_id, campaign_id, month, dim, val,
+                     _i(ct, "total"), _i(ct, "reached"), now))
+
             # Format-INDEPENDENT outcome counts (why cases ended). Unlike bands,
             # these exist for every bank list, so a CSP whose sheet has no balance
             # band is no longer a blank "?" bar in the admin view.

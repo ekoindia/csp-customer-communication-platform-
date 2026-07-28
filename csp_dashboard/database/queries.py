@@ -145,31 +145,6 @@ def get_case(case_id: str) -> Optional[dict]:
     return _decrypt_row(row)
 
 
-def update_case_fields(case_id: str, name: str, mobile: str,
-                       father_name: Optional[str], balance_band: str,
-                       village: Optional[str], taluka: Optional[str],
-                       address: Optional[str], band_label: str, tone: str,
-                       template_id: str, is_sensitive: bool) -> None:
-    """Update the CSP-editable customer fields on a case (used by the case
-    detail edit form). Classification-derived fields (band_label, tone,
-    template_id, is_sensitive) are recomputed by the caller and passed in.
-    Identifying fields are encrypted before storage (account_number is not
-    edited here — it's read-only on the case detail form)."""
-    with get_connection() as conn:
-        conn.execute(
-            """UPDATE customer_cases SET
-                 name=?, mobile=?, father_name=?, balance_band=?,
-                 village=?, taluka=?, address=?, band_label=?, tone=?,
-                 template_id=?, is_sensitive=?
-               WHERE case_id=?""",
-            (crypto.encrypt_field(name), crypto.encrypt_field(mobile),
-             crypto.encrypt_field(father_name), balance_band, village, taluka,
-             crypto.encrypt_field(address),
-             band_label, tone, template_id, int(is_sensitive), case_id),
-        )
-        conn.commit()
-
-
 def update_case_mobile(case_id: str, mobile: str) -> bool:
     """Correct ONLY a case's mobile number (re-encrypted at rest). Everything
     else about a case stays immutable (see routes.update_case). OCR misses/mis-
@@ -597,6 +572,53 @@ def update_business_status(case_id: str, status: str,
             (status, _now(), visited_at, closed_at, message_sent_at, case_id),
         )
         conn.commit()
+
+
+# Columns that can act as a CATEGORY to group cases by. Deliberately generic:
+# which of these actually exists depends on the bank list, so the platform
+# discovers them from the data instead of hard-coding "balance band" (a property
+# of ONE list format). village/taluka are stored unencrypted precisely because
+# they are category data, not individually identifying (see core/crypto.py).
+CATEGORY_DIMENSIONS = ("band_label", "village", "taluka")
+
+_REACHED_STATUSES = "('wa_delivered','wa_read','sms_delivered')"
+
+
+def dimension_breakdown(campaign_id: str, top: int = 12) -> list:
+    """Group cases by EVERY category dimension that actually has data.
+
+    Returns [{dimension, value, total, reached}, ...] — a dimension is omitted
+    entirely when the bank list carries nothing for it (so a sheet with no
+    balance band simply produces village/taluka groupings instead, and the UI can
+    render whatever came back without knowing the format in advance).
+    Values are capped to the `top` biggest groups per dimension so the northbound
+    payload stays small. Counts only — never an identifier."""
+    out = []
+    with get_connection() as conn:
+        for dim in CATEGORY_DIMENSIONS:
+            rows = conn.execute(
+                f"""
+                SELECT TRIM(cc.{dim}) AS value, COUNT(*) AS total,
+                       SUM(CASE WHEN ca.status IN {_REACHED_STATUSES}
+                                THEN 1 ELSE 0 END) AS reached
+                FROM customer_cases cc
+                LEFT JOIN (
+                    SELECT case_id, status FROM communication_attempts
+                    WHERE id IN (SELECT MAX(id) FROM communication_attempts
+                                 GROUP BY case_id)
+                ) ca ON ca.case_id = cc.case_id
+                WHERE cc.campaign_id = ?
+                  AND TRIM(COALESCE(cc.{dim}, '')) NOT IN ('', 'NA', '?', '-')
+                GROUP BY 1
+                ORDER BY total DESC
+                LIMIT ?
+                """,
+                (campaign_id, top),
+            ).fetchall()
+            for r in rows:
+                out.append({"dimension": dim, "value": r["value"],
+                            "total": r["total"] or 0, "reached": r["reached"] or 0})
+    return out
 
 
 def set_case_outcome(case_id: str, outcome: Optional[str],
