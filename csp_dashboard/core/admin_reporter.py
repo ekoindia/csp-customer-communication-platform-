@@ -178,8 +178,15 @@ def _campaign_progress(conn, campaign_id: str) -> dict:
         "wa_delivered": wa_deliv, "wa_read": wa_read, "wa_failed": wa_failed,
         "sms_sent": sms_sent, "sms_delivered": sms_deliv, "sms_failed": sms_failed,
         "escalated": escalated,
-        # physical-visit tracking
+        # physical-visit tracking. These five are CURRENT statuses and are
+        # mutually exclusive, so they add up to `total` — including the bucket
+        # that used to be missing entirely (cases whose message hasn't gone out
+        # yet), which is why the admin panel didn't reconcile with the case count.
+        "visit_not_started": b.get("pending", 0),
         "visit_pending": b.get("customer_not_visited", 0),
+        # NOTE: cumulative ("ever visited"), NOT a current status — a case that
+        # was visited and then completed/closed is counted here AND in that
+        # status. Labelled as such in the admin UI so the two aren't added up.
         "visited": visited,
         "in_progress": b.get("customer_visited_in_progress", 0),
         "completed": b.get("process_completed", 0),

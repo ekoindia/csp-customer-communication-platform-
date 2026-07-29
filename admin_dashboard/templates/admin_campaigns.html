@@ -28,19 +28,38 @@
     <div class="stat bad2"><div class="v">{{ r.escalated }}</div><div class="l">Escalated</div></div>
   </div>
 
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Physical-visit tracking</p>
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
+    Physical-visit tracking — these five are the CURRENT status of every case and
+    add up to {{ r.total }}
+  </p>
   <div class="grid">
-    <div class="stat visit"><div class="v">{{ r.visit_pending }}</div><div class="l">Pending visit</div></div>
-    <div class="stat visit"><div class="v">{{ r.visited }}</div><div class="l">Visited</div></div>
+    <div class="stat visit"><div class="v">{{ r.visit_not_started or 0 }}</div><div class="l">Not messaged yet</div></div>
+    <div class="stat visit"><div class="v">{{ r.visit_pending }}</div><div class="l">Messaged, not visited</div></div>
     <div class="stat visit"><div class="v">{{ r.in_progress }}</div><div class="l">In progress</div></div>
     <div class="stat visit"><div class="v">{{ r.completed }}</div><div class="l">Completed</div></div>
     <div class="stat visit"><div class="v">{{ r.closed }}</div><div class="l">Closed</div></div>
   </div>
+  <p class="note" style="margin:6px 0 0;color:var(--soft)">
+    Ever visited: <b>{{ r.visited }}</b> — cumulative, so a case visited and later
+    completed/closed appears here AND in that status. Do not add it to the five above.
+    {% if r.visit_not_started == 0 and (r.visit_pending + r.in_progress + r.completed + r.closed) < r.total %}
+      <span style="color:var(--warn,#e0a020)">(Some CSPs are on an older build that
+      doesn't report the "not messaged yet" count, so the five may not reach
+      {{ r.total }} yet.)</span>
+    {% endif %}
+  </p>
 
   <!-- FORMAT-INDEPENDENT breakdown. Balance band exists only in some bank
        lists, so these two panels are what let Eko compare every CSP on the same
        footing — including ones whose sheet has no band column at all. -->
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Contactability (works for every list format)</p>
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
+    Contactability (works for every list format)
+    {% if r.contact_cov and r.contact_cov.cases and r.contact_cov.cases < r.total %}
+      <span style="color:var(--warn,#e0a020)">— covers {{ r.contact_cov.cases }} of
+      {{ r.total }} cases ({{ r.contact_cov.csps }} of {{ r.csps }} CSPs report it;
+      the rest are on an older build)</span>
+    {% endif %}
+  </p>
   <div class="grid">
     <div class="stat"><div class="v">{{ r.with_mobile or 0 }}</div><div class="l">Have a mobile</div></div>
     <div class="stat bad2"><div class="v">{{ r.no_mobile or 0 }}</div><div class="l">No mobile in the list</div></div>
@@ -54,7 +73,14 @@
   {% endif %}
 
   {% if r.outcomes %}
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">Case outcomes (why cases ended)</p>
+  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
+    Case outcomes (why cases ended)
+    {% if r.outcome_cov and r.outcome_cov.cases and r.outcome_cov.cases < r.total %}
+      <span style="color:var(--warn,#e0a020)">— covers {{ r.outcome_cov.cases }} of
+      {{ r.total }} cases ({{ r.outcome_cov.csps }} of {{ r.csps }} CSPs report it;
+      the rest are on an older build)</span>
+    {% endif %}
+  </p>
   {% for o in r.outcomes %}
     <div class="bandrow">
       <div class="nm">{{ o.label }}</div>

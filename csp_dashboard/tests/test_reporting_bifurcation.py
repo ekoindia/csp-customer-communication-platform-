@@ -121,3 +121,26 @@ def test_categories_are_in_the_northbound_payload(db):
     # counts only — no identifiers
     blob = repr(p["categories"])
     assert "NAME1" not in blob and "9876500000" not in blob
+
+
+def test_visit_statuses_are_mutually_exclusive_and_sum_to_total(db):
+    """The visit panel must reconcile with the case count. It used to omit the
+    'no message sent yet' bucket entirely, so 87 cases showed as 11."""
+    from core import tracking
+    queries.insert_document("B_BIF", "inoperative_accounts", "f.csv", "csv")
+    ids = [_case(i) for i in range(1, 6)]
+    # leave #1 untouched (pending), advance the others through the state machine
+    queries.update_business_status(ids[1], "customer_not_visited")
+    tracking.transition(ids[2], "customer_visited_in_progress")
+    tracking.transition(ids[3], "customer_visited_in_progress")
+    tracking.transition(ids[3], "process_completed")
+    tracking.transition(ids[4], "case_closed")
+
+    p = _payload(db)
+    five = (p["visit_not_started"] + p["visit_pending"] + p["in_progress"]
+            + p["completed"] + p["closed"])
+    assert p["total"] == 5
+    assert five == 5, f"current statuses must add up to total, got {five}"
+    assert p["visit_not_started"] == 1
+    # 'visited' is CUMULATIVE (ever visited) and may overlap the five above
+    assert p["visited"] >= 1

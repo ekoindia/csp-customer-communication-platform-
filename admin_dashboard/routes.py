@@ -146,6 +146,7 @@ def api_keys():
             removed = 0
             with get_connection() as conn:
                 for table in ("api_keys", "csps", "progress", "progress_bands",
+                              "progress_categories", "progress_outcomes",
                               "audit", "update_events", "ocr_metrics", "commands"):
                     cur = conn.execute(f"DELETE FROM {table} WHERE csp_id=?", (csp_id,))
                     removed += cur.rowcount if cur.rowcount and cur.rowcount > 0 else 0
@@ -276,6 +277,7 @@ def campaigns():
                       SUM(wa_read) wa_read, SUM(wa_failed) wa_failed,
                       SUM(sms_sent) sms_sent, SUM(sms_delivered) sms_delivered,
                       SUM(sms_failed) sms_failed, SUM(escalated) escalated,
+                      SUM(visit_not_started) visit_not_started,
                       SUM(visit_pending) visit_pending, SUM(visited) visited,
                       SUM(in_progress) in_progress, SUM(completed) completed,
                       SUM(closed) closed,
@@ -315,6 +317,26 @@ def campaigns():
         ).fetchall()
         cat_csps = {(c["campaign_id"], c["month"], c["dimension"]): c["n"]
                     for c in cat_cov}
+        # COVERAGE of the newer per-case metrics. A CSP still running an older
+        # build doesn't report contactability/outcomes at all, so these panels can
+        # describe only PART of the campaign — showing them without saying so made
+        # 37 of 87 cases look like the whole picture.
+        contact_cov = conn.execute(
+            """SELECT campaign_id, month,
+                      COUNT(DISTINCT CASE WHEN (with_mobile + no_mobile) > 0
+                                          THEN csp_id END) csps,
+                      SUM(with_mobile + no_mobile) cases
+               FROM progress GROUP BY campaign_id, month""").fetchall()
+        contact_cov = {(c["campaign_id"], c["month"]):
+                       {"csps": c["csps"] or 0, "cases": c["cases"] or 0}
+                       for c in contact_cov}
+        outcome_cov = conn.execute(
+            """SELECT campaign_id, month, COUNT(DISTINCT csp_id) csps,
+                      SUM(count) cases
+               FROM progress_outcomes GROUP BY campaign_id, month""").fetchall()
+        outcome_cov = {(o["campaign_id"], o["month"]):
+                       {"csps": o["csps"] or 0, "cases": o["cases"] or 0}
+                       for o in outcome_cov}
         # Format-INDEPENDENT breakdown: balance band exists only in some bank
         # lists, so outcomes are what let Eko compare CSPs on the same footing.
         outcome_rows = conn.execute(
@@ -379,6 +401,10 @@ def campaigns():
         # the campaign's CSPs it actually describes.
         d["band_csps"] = band_csps.get((r["campaign_id"], r["month"]), 0)
         d["outcomes"] = outcomes.get((r["campaign_id"], r["month"]), [])
+        d["contact_cov"] = contact_cov.get((r["campaign_id"], r["month"]),
+                                           {"csps": 0, "cases": 0})
+        d["outcome_cov"] = outcome_cov.get((r["campaign_id"], r["month"]),
+                                           {"csps": 0, "cases": 0})
         # Dynamic groupings actually present in the fleet's data for this campaign.
         d["categories"] = list(cats.get((r["campaign_id"], r["month"]), {}).values())
         d["per_csp"] = per_csp.get((r["campaign_id"], r["month"]), [])

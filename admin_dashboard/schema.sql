@@ -68,6 +68,10 @@ CREATE TABLE IF NOT EXISTS progress (
     sms_failed      INTEGER NOT NULL DEFAULT 0,
     escalated       INTEGER NOT NULL DEFAULT 0,   -- both failed -> manual visit
     -- (b) physical-visit (business) tracking --------------------------------
+    -- These are CURRENT statuses and mutually exclusive, so
+    -- visit_not_started + visit_pending + in_progress + completed + closed = total.
+    -- `visited` below is cumulative (ever visited) and must NOT be added to them.
+    visit_not_started INTEGER NOT NULL DEFAULT 0, -- no message sent yet
     visit_pending   INTEGER NOT NULL DEFAULT 0,   -- message sent, not visited yet
     visited         INTEGER NOT NULL DEFAULT 0,   -- customer came (has visited_at)
     in_progress     INTEGER NOT NULL DEFAULT 0,   -- visit started

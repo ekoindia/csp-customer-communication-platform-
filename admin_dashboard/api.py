@@ -439,10 +439,11 @@ def report():
                 """INSERT INTO progress (csp_id, campaign_id, month, total, reached,
                        failed, pct, wa_sent, wa_delivered, wa_read, wa_failed,
                        sms_sent, sms_delivered, sms_failed, escalated,
-                       visit_pending, visited, in_progress, completed, closed,
+                       visit_not_started, visit_pending, visited,
+                       in_progress, completed, closed,
                        with_mobile, no_mobile, not_on_whatsapp,
                        earnings, updated_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                    ON CONFLICT(csp_id, campaign_id, month) DO UPDATE SET
                        with_mobile=excluded.with_mobile, no_mobile=excluded.no_mobile,
                        not_on_whatsapp=excluded.not_on_whatsapp,
@@ -452,6 +453,7 @@ def report():
                        wa_read=excluded.wa_read, wa_failed=excluded.wa_failed,
                        sms_sent=excluded.sms_sent, sms_delivered=excluded.sms_delivered,
                        sms_failed=excluded.sms_failed, escalated=excluded.escalated,
+                       visit_not_started=excluded.visit_not_started,
                        visit_pending=excluded.visit_pending, visited=excluded.visited,
                        in_progress=excluded.in_progress, completed=excluded.completed,
                        closed=excluded.closed, earnings=excluded.earnings,
@@ -460,7 +462,8 @@ def report():
                  _i(camp, "failed"), _f(camp, "pct"), _i(camp, "wa_sent"),
                  _i(camp, "wa_delivered"), _i(camp, "wa_read"), _i(camp, "wa_failed"),
                  _i(camp, "sms_sent"), _i(camp, "sms_delivered"), _i(camp, "sms_failed"),
-                 _i(camp, "escalated"), _i(camp, "visit_pending"), _i(camp, "visited"),
+                 _i(camp, "escalated"), _i(camp, "visit_not_started"),
+                 _i(camp, "visit_pending"), _i(camp, "visited"),
                  _i(camp, "in_progress"), _i(camp, "completed"), _i(camp, "closed"),
                  _i(camp, "with_mobile"), _i(camp, "no_mobile"),
                  _i(camp, "wa_not_on_whatsapp"),

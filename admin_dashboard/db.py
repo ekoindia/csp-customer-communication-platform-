@@ -30,7 +30,8 @@ def setup():
         # exists only in some bank lists, so a band-only view is blind for CSPs
         # whose sheets have none; these hold for every format.
         pcols = {r["name"] for r in conn.execute("PRAGMA table_info(progress)")}
-        for col in ("with_mobile", "no_mobile", "not_on_whatsapp"):
+        for col in ("with_mobile", "no_mobile", "not_on_whatsapp",
+                    "visit_not_started"):
             if col not in pcols:
                 conn.execute(
                     f"ALTER TABLE progress ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
