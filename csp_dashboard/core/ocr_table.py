@@ -1107,10 +1107,24 @@ def _extract_content(gray_np: np.ndarray, words, on_row=None):
     bands = [w for w in words if _BAND_RE.search(w["t"])]
     bx = float(np.median([w["x"] for w in bands])) if bands else ax + 0.15 * W
 
-    recs = [{"account_number": _clean_digits(arec[i]["t"]), "name": "",
-             "balance_band": "", "father_name": "", "mobile": "",
-             "taluka": "", "village": "", "address": "", "_raw": "",
-             "_nm": [], "_fa": [], "_tl": []} for i in range(len(anchors))]
+    # In some bank lists the account number and the customer name are printed with
+    # NO gap ("50000000001Ramesh Kumar"), so the reader returns them as ONE token.
+    # Digit-cleaning that token used to silently DROP the first name word — names
+    # came out as "KUMAR" instead of "RAMESH KUMAR". Keep the letters and seed the
+    # name with them (at the account's x, so they sort ahead of the later name
+    # words when the name is assembled below).
+    def _split_acct_token(w):
+        raw = str(w.get("t") or "")
+        letters = re.sub(r"[^A-Za-z .]+", " ", raw).strip()
+        return _clean_digits(raw), ([(w["x"], letters)] if len(letters) >= 2 else [])
+
+    recs = []
+    for i in range(len(anchors)):
+        digits, seed = _split_acct_token(arec[i])
+        recs.append({"account_number": digits, "name": "",
+                     "balance_band": "", "father_name": "", "mobile": "",
+                     "taluka": "", "village": "", "address": "", "_raw": "",
+                     "_nm": list(seed), "_fa": [], "_tl": []})
 
     def nearest(y):
         best, bd = None, h * 0.6
@@ -1554,6 +1568,15 @@ def _extract_grid(gray_np: np.ndarray):
             return s
         name = _text_only(cell(ri, name_col))
         father = _text_only(cell(ri, father_col))
+
+        # Same "account and name printed with no gap" case as in the word-based
+        # path: when the ruled ACCOUNT cell also holds letters, they are the start
+        # of the name (e.g. "50000000001Ramesh") — keep them instead of letting
+        # digit-cleaning drop the first name word.
+        _acct_letters = re.sub(r"[^A-Za-z .]+", " ",
+                               str(cell(ri, account_col) or "")).strip().upper()
+        if len(_acct_letters) >= 2 and _acct_letters not in name:
+            name = (_acct_letters + " " + name).strip()
 
         # Taluka / village / address — read as separate columns when cleanly
         # identified; otherwise merge the trailing columns and split by content.
