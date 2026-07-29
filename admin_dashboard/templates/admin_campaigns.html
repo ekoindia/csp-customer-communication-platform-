@@ -110,20 +110,10 @@
   {% endfor %}
   {% endfor %}
 
-  {# Legacy fallback: a CSP still on an older build reports only `bands`. #}
-  {% if not r.categories and r.bands and r.band_csps %}
-  <p class="note" style="margin:14px 0 4px;color:var(--soft)">
-    Balance-band reach — a category that exists only in SOME bank lists
-    ({{ r.band_csps }} of {{ r.csps }} CSP{{ '' if r.csps == 1 else 's' }} in this campaign).
-  </p>
-  {% for b in r.bands %}
-    <div class="bandrow">
-      <div class="nm">{{ b.band }}</div>
-      <div class="track"><div class="bar"><span style="width:{{ (100 * b.reached / b.total) if b.total else 0 }}%"></span></div></div>
-      <div class="n">{{ b.reached }} / {{ b.total }}</div>
-    </div>
-  {% endfor %}
-  {% endif %}
+  {# The balance-band chart is deliberately NOT shown. Only some bank lists carry
+     a band column, so fleet-wide it described one CSP while looking like the whole
+     campaign, and everyone else fell into a meaningless "no band in list" bar.
+     Contactability + Case outcomes above cover every CSP on the same footing. #}
 
   {% if r.per_csp %}
   <p class="note" style="margin:14px 0 4px;color:var(--soft)">Per-CSP breakdown</p>

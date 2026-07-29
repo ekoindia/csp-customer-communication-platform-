@@ -371,12 +371,18 @@ def campaigns():
         outcomes.setdefault((o["campaign_id"], o["month"]), []).append(d)
     # dimension -> friendly title (unknown dimensions fall back to a tidied name,
     # so a NEW dimension added later renders without touching this code)
-    _DIM_LABELS = {"band_label": "Balance band", "village": "Village",
-                   "taluka": "Taluka / block"}
+    _DIM_LABELS = {"village": "Village", "taluka": "Taluka / block"}
+    # Balance band is NOT shown fleet-wide: only some bank lists have that column,
+    # so the chart described a single CSP while looking like the whole campaign and
+    # parked everyone else in a meaningless "no band in list" bar. Per-CSP band
+    # detail still exists in that CSP's own dashboard.
+    _HIDDEN_DIMS = {"band_label"}
     cats = {}
     for c in cat_rows:
         key = (c["campaign_id"], c["month"])
         dim = c["dimension"]
+        if dim in _HIDDEN_DIMS:
+            continue
         entry = cats.setdefault(key, {}).setdefault(dim, {
             "dimension": dim,
             "label": _DIM_LABELS.get(dim, dim.replace("_", " ").title()),
