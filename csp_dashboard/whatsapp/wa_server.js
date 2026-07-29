@@ -30,7 +30,7 @@ const { Boom } = require("@hapi/boom");
  * every Node we ship, so we can run the PATCHED version and keep this file as-is
  * otherwise. Resolved once, lazily, before the first connect.
  */
-let makeWASocket, useMultiFileAuthState, DisconnectReason;
+let makeWASocket, useMultiFileAuthState, DisconnectReason, fetchLatestBaileysVersion;
 let _baileysLoading = null;
 
 function loadBaileys() {
@@ -45,6 +45,10 @@ function loadBaileys() {
                         || ns.makeWASocket;
             useMultiFileAuthState = ns.useMultiFileAuthState || m.useMultiFileAuthState;
             DisconnectReason = ns.DisconnectReason || m.DisconnectReason;
+            // Optional: absent in some builds — we fall back to Baileys' default.
+            fetchLatestBaileysVersion = ns.fetchLatestBaileysVersion
+                                     || m.fetchLatestBaileysVersion
+                                     || (async () => ({}));
             if (typeof makeWASocket !== "function" || !useMultiFileAuthState) {
                 throw new Error("Baileys loaded but its API was not found "
                                 + "(unexpected package shape)");
@@ -79,6 +83,12 @@ let sock = null;
 let isReady = false;
 let lastQrDataUrl = null;
 let lastQrGeneratedAt = null;
+// Reconnect backoff state. WhatsApp answers "Connection Failure" during
+// registration when it is refusing the client (stale web version, or a temporary
+// block from too many attempts); retrying every 3s makes that worse.
+let retries = 0;
+const MAX_RETRIES = 6;
+let lastError = null;
 
 // Pending sends keyed by our own request id, so we can resolve/reject them
 // once Baileys confirms the message left (or failed).
@@ -96,11 +106,24 @@ async function connectWhatsApp() {
     }
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
 
+    // Use the WA web build WhatsApp currently expects. With a stale version the
+    // server answers "Connection Failure" during registration and NO QR is ever
+    // emitted — the bridge just reconnect-loops forever (seen on a live CSP).
+    let waVersion;
+    try {
+        const v = await fetchLatestBaileysVersion();
+        waVersion = v && v.version;
+        if (waVersion) console.log("WhatsApp web version:", waVersion.join("."));
+    } catch (e) {
+        console.log("Could not fetch the latest WhatsApp version:", e.message);
+    }
+
     sock = makeWASocket({
         auth: state,
         printQRInTerminal: false,
         // A real browser identity string — some networks reject the default.
         browser: ["CSP Platform", "Chrome", "1.0"],
+        ...(waVersion ? { version: waVersion } : {}),
     });
 
     sock.ev.on("creds.update", saveCreds);
@@ -125,6 +148,8 @@ async function connectWhatsApp() {
             isReady = true;
             lastQrDataUrl = null;
             lastQrGeneratedAt = null;
+            retries = 0;            // healthy again — reset the backoff
+            lastError = null;
             console.log("WhatsApp connected.");
         }
 
@@ -144,9 +169,24 @@ async function connectWhatsApp() {
                 clearSession();
                 setTimeout(connectWhatsApp, 1000);
             } else {
-                // Transient drop (network, phone offline) — reconnect automatically.
-                console.log("WhatsApp connection dropped — reconnecting.");
-                setTimeout(connectWhatsApp, 3000);
+                // Transient drop (network, phone offline) — reconnect, but with a
+                // BACKOFF. A fixed 3s retry hammered WhatsApp's registration
+                // endpoint every few seconds when it kept answering "Connection
+                // Failure"; that is exactly how a number/IP gets rate-limited, and
+                // the QR then never arrives. Back off, and stop after a while with
+                // a clear reason instead of looping forever.
+                retries += 1;
+                if (retries > MAX_RETRIES) {
+                    lastError = "WhatsApp refused the connection " + retries
+                        + " times in a row. This is usually a temporary block from "
+                        + "too many attempts — wait ~30 minutes, then press "
+                        + "\"Reset & New QR\". (Check the internet connection too.)";
+                    console.log(lastError);
+                    return;      // stop; /reset or a restart starts over
+                }
+                const wait = Math.min(60000, 5000 * Math.pow(2, retries - 1));
+                console.log(`WhatsApp connection dropped — retry ${retries}/${MAX_RETRIES} in ${Math.round(wait / 1000)}s.`);
+                setTimeout(connectWhatsApp, wait);
             }
         }
     });
@@ -241,7 +281,11 @@ app.get("/check", async (req, res) => {
 
 // GET /status
 app.get("/status", (req, res) => {
-    res.json({ ready: isReady, has_qr: Boolean(lastQrDataUrl) });
+    // Surface WHY there is no QR yet, so the dashboard can say it instead of
+    // sitting on "awaiting QR scan" forever.
+    res.json({ ready: isReady, has_qr: Boolean(lastQrDataUrl),
+               retrying: retries > 0 && retries <= MAX_RETRIES,
+               error: lastError });
 });
 
 // GET /qr  — dashboard-friendly QR image for linking the sender WhatsApp.
@@ -263,6 +307,8 @@ app.post("/reset", async (req, res) => {
         isReady = false;
         lastQrDataUrl = null;
         connecting = false;
+        retries = 0;          // a manual reset starts the backoff over
+        lastError = null;
         clearSession();
         connectWhatsApp().catch((err) => console.error("reset reconnect error:", err.message));
         res.json({ ok: true });

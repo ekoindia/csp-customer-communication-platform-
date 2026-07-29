@@ -906,8 +906,21 @@ def channel_status():
     wa_detail = "offline"
     try:
         resp = requests.get(f"{config.WA_SERVER_URL}/status", timeout=3)
-        wa_ready = bool(resp.json().get("ready"))
-        wa_detail = "connected" if wa_ready else "starting / awaiting QR scan"
+        data = resp.json()
+        wa_ready = bool(data.get("ready"))
+        if wa_ready:
+            wa_detail = "connected"
+        elif data.get("error"):
+            # The bridge is running but WhatsApp is refusing it (stale web
+            # version, or a temporary block from repeated attempts). Say so
+            # instead of leaving the CSP on "awaiting QR scan" forever.
+            wa_detail = str(data["error"])
+        elif data.get("retrying"):
+            wa_detail = "WhatsApp refused the connection — retrying with a delay…"
+        elif data.get("has_qr"):
+            wa_detail = "QR ready — press Show QR and scan it"
+        else:
+            wa_detail = "starting / awaiting QR scan"
     except requests.RequestException:
         wa_detail = "server not running"
 
