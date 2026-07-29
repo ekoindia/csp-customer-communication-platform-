@@ -17,12 +17,42 @@ const express = require("express");
 const http = require("http");
 const fs = require("fs");
 const QRCode = require("qrcode");
-const {
-    default: makeWASocket,
-    useMultiFileAuthState,
-    DisconnectReason,
-} = require("@whiskeysockets/baileys");
 const { Boom } = require("@hapi/boom");
+
+/*
+ * Baileys is loaded with dynamic import(), NOT require().
+ *
+ * Why: Baileys 6.7.20+ and 7.x ship as ES Modules, and a CommonJS require() of
+ * an ESM package throws ERR_REQUIRE_ESM on Node 20 — which is what CSP machines
+ * run. The last CommonJS release (6.7.18) carries a published message-spoofing
+ * advisory (GHSA-qvv5-jq5g-4cgg), so pinning back to it is not acceptable on a
+ * machine that messages bank customers. dynamic import() works from CommonJS on
+ * every Node we ship, so we can run the PATCHED version and keep this file as-is
+ * otherwise. Resolved once, lazily, before the first connect.
+ */
+let makeWASocket, useMultiFileAuthState, DisconnectReason;
+let _baileysLoading = null;
+
+function loadBaileys() {
+    if (!_baileysLoading) {
+        _baileysLoading = import("@whiskeysockets/baileys").then((m) => {
+            // Different builds expose things either at the top level or under
+            // .default, so resolve defensively instead of assuming one shape.
+            const ns = (m.default && typeof m.default === "object"
+                        && m.default.useMultiFileAuthState) ? m.default : m;
+            makeWASocket = (typeof m.default === "function" && m.default)
+                        || (typeof ns.default === "function" && ns.default)
+                        || ns.makeWASocket;
+            useMultiFileAuthState = ns.useMultiFileAuthState || m.useMultiFileAuthState;
+            DisconnectReason = ns.DisconnectReason || m.DisconnectReason;
+            if (typeof makeWASocket !== "function" || !useMultiFileAuthState) {
+                throw new Error("Baileys loaded but its API was not found "
+                                + "(unexpected package shape)");
+            }
+        });
+    }
+    return _baileysLoading;
+}
 
 const app = express();
 app.use(express.json());
@@ -55,6 +85,15 @@ let lastQrGeneratedAt = null;
 async function connectWhatsApp() {
     if (connecting) return sock;
     connecting = true;
+    // ESM package, resolved once (see loadBaileys). If it can't load, clear the
+    // guard so a later /reset or retry isn't blocked forever by connecting=true.
+    try {
+        await loadBaileys();
+    } catch (err) {
+        connecting = false;
+        _baileysLoading = null;   // allow a fresh attempt next time
+        throw err;
+    }
     const { state, saveCreds } = await useMultiFileAuthState(SESSION_DIR);
 
     sock = makeWASocket({

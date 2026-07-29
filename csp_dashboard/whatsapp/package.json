@@ -6,20 +6,20 @@
   "scripts": {
     "start": "node wa_server.js"
   },
-  "_why_baileys_6_7_18_exactly": [
-    "EXACT pin, no caret/tilde — do not 'tidy' this into ^6.7.x.",
-    "wa_server.js is CommonJS (require). Baileys 6.7.18 is the LAST CommonJS",
-    "release: 6.7.20+ ship \"type\": \"module\" and 7.x is ESM-only, so any of those",
-    "makes the bridge die at startup with ERR_REQUIRE_ESM on Node 20 (the version",
-    "CSP machines get). It only 'works' on Node 22.12+/24, which can require() ESM",
-    "— that is why this bug hid during local testing and only broke on a CSP box.",
-    "To move to 6.7.20+/7.x, wa_server.js must first be converted to ESM (or use",
-    "dynamic import()). 7.0.0-rc13 was also a release CANDIDATE plus a native",
-    "whatsapp-rust-bridge — not something to ship to unattended rural machines."
+  "_why_baileys_6_7_23": [
+    "Stay on the 6.x line, but on a PATCHED release (>=6.7.22): 6.7.18 and older",
+    "carry the published message-spoofing advisory GHSA-qvv5-jq5g-4cgg, which is",
+    "not acceptable on a machine that messages bank customers.",
+    "6.7.20+ ship as ES Modules, so wa_server.js loads Baileys with dynamic",
+    "import() instead of require() — that works from CommonJS on Node 20, which is",
+    "what CSP machines run (a plain require() of ESM dies there with",
+    "ERR_REQUIRE_ESM). Range stays <7 on purpose: 7.x is release-candidate only",
+    "and adds a native whatsapp-rust-bridge, not something to push to unattended",
+    "rural machines."
   ],
   "dependencies": {
     "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "6.7.18",
+    "@whiskeysockets/baileys": "^6.7.23",
     "express": "^4.19.2",
     "qrcode": "^1.5.4"
   }
