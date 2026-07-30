@@ -5,11 +5,17 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}Eko Admin Portal{% endblock %}</title>
 <style>
-  :root{--bg:#0f1622;--panel:#17202e;--ink:#e8eef6;--soft:#9fb0c3;--line:#26313f;
-        --accent:#f5a623;--ok:#2ecc71;--bad:#e0746e;--muted:#6b7c91;}
+  /* Eko Factory Design Language v1.0 — dark surface set.
+     Same variable names as before, warm Eko values instead of the old blue-grey,
+     so every rule below picks the new palette up untouched.
+     IBM Plex Sans is used only if the machine already has it — no webfont is
+     bundled and no CDN is contacted (CLAUDE.md: no external assets). */
+  :root{--bg:#16120f;--panel:#201a15;--sunk:#120e0b;--ink:#f3ede5;--soft:#a4988a;
+        --line:#312720;--accent:#f0752a;--accent-2:#c1520a;--gold:#d6a52b;
+        --ok:#4bbf7a;--bad:#e0746e;--muted:#7d7267;}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--ink);
-       font-family:ui-sans-serif,system-ui,"Segoe UI",Roboto,Arial,sans-serif}
+       font-family:"IBM Plex Sans",ui-sans-serif,system-ui,"Segoe UI",Roboto,Arial,sans-serif}
   /* ---- Left sidebar layout ---- */
   .layout{display:flex;min-height:100vh}
   .sidebar{width:210px;flex:0 0 210px;background:var(--panel);border-right:1px solid var(--line);
@@ -18,7 +24,7 @@
   .sidebar .brand span{color:var(--accent)}
   .sidebar nav{display:flex;flex-direction:column;gap:2px}
   .sidebar nav a{color:var(--soft);text-decoration:none;font-size:14px;padding:9px 12px;border-radius:8px;white-space:nowrap}
-  .sidebar nav a.active,.sidebar nav a:hover{color:var(--ink);background:#0f1723}
+  .sidebar nav a.active,.sidebar nav a:hover{color:var(--ink);background:var(--sunk)}
   .sidebar .foot{margin-top:auto;font-size:13px;color:var(--soft);padding:8px 10px 0;border-top:1px solid var(--line)}
   .sidebar .foot a{color:var(--soft)}
   .main{flex:1;min-width:0}
@@ -46,10 +52,10 @@
   a.row{color:var(--ink);text-decoration:none}
   a.row:hover{color:var(--accent)}
   .pill{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
-  .pill.on{background:rgba(46,204,113,.15);color:var(--ok)}
-  .pill.off{background:rgba(107,124,145,.2);color:var(--muted)}
-  .pill.bad{background:rgba(224,116,110,.15);color:var(--bad)}
-  .pill.ok{background:rgba(46,204,113,.15);color:var(--ok)}
+  .pill.on{background:rgba(75,191,122,.16);color:var(--ok)}
+  .pill.off{background:rgba(125,114,103,.22);color:var(--muted)}
+  .pill.bad{background:rgba(224,116,110,.16);color:var(--bad)}
+  .pill.ok{background:rgba(75,191,122,.16);color:var(--ok)}
   .note{color:var(--muted);font-size:12px;margin-top:14px}
   .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px;margin:10px 0 6px}
   .stat{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px}
@@ -59,7 +65,7 @@
   .stat.visit{border-left:3px solid var(--accent)}.stat.bad2{border-left:3px solid var(--bad)}
   .panel{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 18px;margin-bottom:16px}
   .panel h2{font-size:14px;margin:0 0 12px;text-transform:uppercase;letter-spacing:.05em;color:var(--soft)}
-  .bar{height:8px;border-radius:999px;background:#0f1723;overflow:hidden;margin:5px 0}
+  .bar{height:8px;border-radius:999px;background:var(--sunk);overflow:hidden;margin:5px 0}
   .bar>span{display:block;height:100%;background:var(--accent)}
   .bandrow{display:flex;align-items:center;gap:10px;font-size:13px;margin:6px 0}
   .bandrow .nm{width:90px;color:var(--soft)}.bandrow .track{flex:1}
@@ -69,11 +75,11 @@
   .login{max-width:340px;margin:8vh auto;background:var(--panel);border:1px solid var(--line);
          border-radius:14px;padding:26px}
   .login h1{text-align:center}
-  input{width:100%;padding:9px 11px;margin:6px 0 12px;background:#0f1723;border:1px solid var(--line);
+  input{width:100%;padding:9px 11px;margin:6px 0 12px;background:var(--sunk);border:1px solid var(--line);
         border-radius:8px;color:var(--ink)}
-  button{width:100%;padding:10px;background:var(--accent);color:#1a1200;border:0;border-radius:8px;
+  button{width:100%;padding:10px;background:var(--accent);color:#1b1005;border:0;border-radius:8px;
          font-weight:700;cursor:pointer}
-  .flash{background:rgba(224,116,110,.15);color:var(--bad);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:13px}
+  .flash{background:rgba(224,116,110,.16);color:var(--bad);padding:8px 12px;border-radius:8px;margin-bottom:10px;font-size:13px}
 </style>
 </head>
 <body>

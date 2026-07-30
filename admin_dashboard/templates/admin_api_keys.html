@@ -14,7 +14,7 @@
     <div class="k">CSP ID</div><div style="font-weight:700">{{ new_key.csp_id }}</div>
     <div class="k">API key</div>
     <div>
-      <code id="newKeyValue" style="font-size:13px;word-break:break-all;background:#0f1723;padding:6px 10px;border-radius:6px;display:inline-block">{{ new_key.api_key }}</code>
+      <code id="newKeyValue" style="font-size:13px;word-break:break-all;background:var(--sunk);padding:6px 10px;border-radius:6px;display:inline-block">{{ new_key.api_key }}</code>
       <button type="button" onclick="navigator.clipboard.writeText(document.getElementById('newKeyValue').textContent)"
               style="width:auto;padding:5px 12px;margin-left:8px;font-size:12px">Copy</button>
     </div>
