@@ -165,8 +165,12 @@ def build_draft(file_paths: List[str], campaign_id: str,
         mapping = map_columns(list(raw_rows[0].keys()))
         for raw in raw_rows:
             prow = _preview_row(extract_row(raw, mapping))
+            # Keep every REAL column (the review screen renders these as-is), but
+            # drop the extractor's own internal keys (_raw, _nm, ...) — they are
+            # working state, not something from the document.
             prow["_all"] = {str(k): ("" if v is None else str(v))
-                            for k, v in raw.items()}
+                            for k, v in raw.items()
+                            if not str(k).startswith("_")}
             rows.append(prow)
 
     if not rows:

@@ -79,7 +79,13 @@
             <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="applyZoom(-0.25)" title="Zoom out">−</button>
             <span id="zoomLabel" class="small text-muted" style="min-width:44px;text-align:center">100%</span>
             <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="applyZoom(0.25)" title="Zoom in">+</button>
-            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="resetZoom()" title="Reset zoom">Reset</button>
+            {% if page_images %}
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    onclick="rotatePage(-90)" title="Rotate left">⟲</button>
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2"
+                    onclick="rotatePage(90)" title="Rotate right">⟳</button>
+            {% endif %}
+            <button type="button" class="btn btn-sm btn-outline-secondary py-0 px-2" onclick="resetZoom()" title="Reset zoom / rotation">Reset</button>
           </span>
         </div>
         <div class="card-body p-2" style="max-height:78vh;overflow:auto">
@@ -102,8 +108,17 @@
       <div class="card">
         <div class="card-header fw-semibold d-flex justify-content-between align-items-center">
           <span>Extracted rows</span>
-          <button class="btn btn-sm btn-outline-primary" onclick="addRow()">+ Add row</button>
+          <span class="d-flex gap-1">
+            <button class="btn btn-sm btn-outline-secondary" onclick="toggleAllCols()"
+                    id="allColsBtn"
+                    title="Show every column that came out of the document, not just the editable ones">All columns</button>
+            <button class="btn btn-sm btn-outline-primary" onclick="addRow()">+ Add row</button>
+          </span>
         </div>
+        <!-- Everything the document/OCR actually produced, read-only. The editable
+             grid below carries the fields a case is built from; this makes sure
+             nothing that was extracted is hidden from the CSP. -->
+        <div id="allCols" class="border-bottom p-2 small d-none"></div>
         <div class="card-body p-0" style="max-height:78vh;overflow:auto">
           <table class="table table-sm table-hover mb-0 align-middle" style="min-width:1180px">
             <thead class="table-light" style="position:sticky;top:0;z-index:1">
@@ -161,24 +176,77 @@ function render() {
   seedHistory();
 }
 
-// ── Left "source" panel + zoom (compare view, all input types) ──
-const SRC_COLS = [
+// ── Left "source" panel: EVERY column the document actually had ──
+// Not a fixed list. Each row carries `_all` = the columns exactly as they came out
+// of the file/OCR, so a bank list with extra columns (father's name, address,
+// re-KYC flags, agent code...) shows them all instead of silently hiding whatever
+// doesn't fit our four editable fields. Falls back to the canonical fields for
+// older drafts that have no `_all`.
+const FALLBACK_COLS = [
   ["account_number", "Account no."], ["name", "Name"], ["balance_band", "Balance"],
   ["mobile", "Mobile"], ["village", "Village"],
 ];
+
+function sourceColumns() {
+  const seen = [];
+  INITIAL.forEach((r) => {
+    const all = r._all || {};
+    Object.keys(all).forEach((k) => { if (!seen.includes(k)) seen.push(k); });
+  });
+  return seen.length ? seen.map((k) => [k, k]) : FALLBACK_COLS;
+}
+
+function allColumnsTable() {
+  const cols = sourceColumns();
+  let html = `<div class="text-muted mb-1">All ${cols.length} column(s) as read from`
+           + ` your document — read-only.</div><div style="overflow:auto">`
+           + "<table class='table table-sm table-bordered mb-0'><thead><tr><th>#</th>"
+           + cols.map(c => `<th style="white-space:nowrap">${esc(c[1])}</th>`).join("")
+           + "</tr></thead><tbody>";
+  INITIAL.forEach((r, i) => {
+    const src = (r._all && Object.keys(r._all).length) ? r._all : r;
+    html += `<tr><td class="text-muted">${i + 1}</td>`
+      + cols.map(c => `<td>${esc(src[c[0]] || "")}</td>`).join("") + "</tr>";
+  });
+  return html + "</tbody></table></div>";
+}
+
+function toggleAllCols() {
+  const box = document.getElementById("allCols");
+  const btn = document.getElementById("allColsBtn");
+  const hidden = box.classList.contains("d-none");
+  if (hidden) {
+    box.innerHTML = allColumnsTable();
+    box.classList.remove("d-none");
+    btn.classList.add("active");
+  } else {
+    box.classList.add("d-none");
+    btn.classList.remove("active");
+  }
+}
 
 function renderSource() {
   // Only for spreadsheet uploads (no page image): show the file's rows read-only
   // beside the editable copy, so there is always something to compare against.
   const host = document.getElementById("sourceTable");
   if (!host) return;
-  let html = "<table class='table table-sm table-bordered mb-0'><thead><tr><th>#</th>"
-    + SRC_COLS.map(c => `<th>${c[1]}</th>`).join("") + "</tr></thead><tbody>";
+  const cols = sourceColumns();
+  const dynamic = INITIAL.some((r) => r._all && Object.keys(r._all).length);
+  let html = "";
+  if (dynamic) {
+    html += `<div class="small text-muted mb-1">All ${cols.length} column(s) as read`
+          + ` from your document — read-only. Corrections go in the panel on the right.</div>`;
+  }
+  html += "<div style='overflow:auto'><table class='table table-sm table-bordered mb-0'>"
+        + "<thead><tr><th>#</th>"
+        + cols.map(c => `<th style="white-space:nowrap">${esc(c[1])}</th>`).join("")
+        + "</tr></thead><tbody>";
   INITIAL.forEach((r, i) => {
+    const src = (r._all && Object.keys(r._all).length) ? r._all : r;
     html += `<tr><td class="text-muted">${i + 1}</td>`
-      + SRC_COLS.map(c => `<td>${esc(r[c[0]] || "")}</td>`).join("") + "</tr>";
+      + cols.map(c => `<td>${esc(src[c[0]] || "")}</td>`).join("") + "</tr>";
   });
-  html += "</tbody></table>";
+  html += "</tbody></table></div>";
   host.innerHTML = html;
 }
 
@@ -195,7 +263,35 @@ function applyZoom(delta) {
   box.style.width = (zoom * 100) + "%";
   document.getElementById("zoomLabel").textContent = Math.round(zoom * 100) + "%";
 }
-function resetZoom() { zoom = 1; applyZoom(0); }
+// ── Rotate the scanned page inside the review window ──
+// Scans come in sideways/upside-down often enough that reading them against the
+// extracted rows is painful. This turns the PREVIEW only — the extraction has
+// already happened, so nothing is re-read and no data changes. The choice is
+// remembered per draft, so it survives a reload while the CSP is still checking.
+const ROT_KEY = "csp_review_rot_{{ draft_id }}";
+let rotation = parseInt(localStorage.getItem(ROT_KEY) || "0", 10) || 0;
+
+function applyRotation() {
+  const imgs = document.querySelectorAll("#leftZoom img.zoom-img");
+  imgs.forEach((img) => {
+    img.style.transform = `rotate(${rotation}deg)`;
+    img.style.transformOrigin = "center center";
+    // At 90/270 the page is taller than wide, so give the row enough height for
+    // the rotated box instead of letting it overlap the next page.
+    const sideways = rotation % 180 !== 0;
+    img.style.maxWidth = sideways ? "none" : "100%";
+    img.parentElement.style.overflow = "visible";
+  });
+  localStorage.setItem(ROT_KEY, String(rotation));
+}
+
+function rotatePage(delta) {
+  rotation = (((rotation + delta) % 360) + 360) % 360;
+  applyRotation();
+}
+
+function resetZoom() { zoom = 1; rotation = 0; applyZoom(0); applyRotation(); }
+document.addEventListener("DOMContentLoaded", () => { if (rotation) applyRotation(); });
 
 function addRow() {
   const body = document.getElementById("rowsBody");

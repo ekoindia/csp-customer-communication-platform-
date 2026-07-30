@@ -154,3 +154,26 @@ def test_format_agnostic_carries_all_columns(db, tmp_path, monkeypatch):
     assert rows[0]["_all"]["ADDRESS_WITH_PIN"] == "VILL-X DIST-Y"
     assert rows[0]["_all"]["BRANCH_NAME"] == "SAMPLEBR"
     extraction.discard_draft(draft_id)
+
+
+def test_all_columns_carried_without_internal_keys(db, tmp_path, monkeypatch):
+    """The review screen renders row["_all"] as the document's own columns, so it
+    must hold every REAL column and none of the extractor's working keys."""
+    monkeypatch.setattr(config, "UPLOAD_FOLDER", str(tmp_path / "up"))
+    os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
+    path = _csv(tmp_path,
+        "ACNO,NAME,FTHR_NM,MOBILE_NBR,VILLAGE,ADDRESS_WITH_PIN,REKYC_DUE,AGENT\n"
+        "99990000001,TEST KUMAR,RAM,9990000007,Testpur,VILL-X 800001,Y,1A850016\n")
+    draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
+    rows = extraction.load_draft(draft_id)["rows"]
+    all_cols = rows[0]["_all"]
+
+    # every column from the sheet is present, including ones we never map
+    for col in ("ACNO", "NAME", "FTHR_NM", "MOBILE_NBR", "VILLAGE",
+                "ADDRESS_WITH_PIN", "REKYC_DUE", "AGENT"):
+        assert col in all_cols, f"{col} missing from _all"
+    assert all_cols["REKYC_DUE"] == "Y"
+    assert all_cols["AGENT"] == "1A850016"
+    # ...and no internal working keys leaked in
+    assert not [k for k in all_cols if k.startswith("_")]
+    extraction.discard_draft(draft_id)
