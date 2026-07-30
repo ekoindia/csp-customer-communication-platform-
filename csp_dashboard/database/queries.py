@@ -304,6 +304,15 @@ def delete_batch(batch_id: str) -> None:
         conn.commit()
 
 
+def list_all_case_ids() -> list:
+    """Every case id in the local DB (cheap — no PII read/decrypted). Used when a
+    change applies across batches, e.g. rebuilding unsent messages after the CSP
+    edits their name/address in Settings."""
+    with get_connection() as conn:
+        return [r["case_id"] for r in conn.execute(
+            "SELECT case_id FROM customer_cases ORDER BY id").fetchall()]
+
+
 def list_cases_by_batch(batch_id: str) -> list:
     with get_connection() as conn:
         rows = conn.execute(

@@ -887,9 +887,18 @@ def save_settings():
         if not pw_res["ok"]:
             return jsonify({"ok": False, "errors": pw_res["errors"]}), 400
 
+    # The CSP name / address / phone are BAKED INTO each case's message when it is
+    # generated, so changing them here used to leave every existing message showing
+    # the OLD details — the CSP fixes their address and the messages still carry
+    # the wrong one. Regenerate the messages of cases that have NOT been queued or
+    # sent yet. Already-sent cases are deliberately left alone: their message is a
+    # record of what the customer actually received.
+    from core.message_engine import regenerate_unsent_messages
+    regen = regenerate_unsent_messages()
+
     insert_audit_log(session["user_id"], "settings_updated",
-                     f"csp_name={data.get('csp_name')}")
-    return jsonify({"ok": True})
+                     f"csp_name={data.get('csp_name')} messages_regenerated={regen}")
+    return jsonify({"ok": True, "messages_regenerated": regen})
 
 
 # ── API: channel status ───────────────────────────────────────────────────────

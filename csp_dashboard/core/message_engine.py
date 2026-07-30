@@ -96,6 +96,34 @@ def generate_single_message(case_id: str) -> dict:
     return messages
 
 
+def regenerate_unsent_messages() -> int:
+    """Rebuild the stored message of every case that has NOT been queued/sent yet.
+
+    The CSP's name, address and phone are baked into each message when it is
+    generated (that is what the templates fill in), so editing them in Settings
+    would otherwise leave existing messages carrying the OLD details — the CSP
+    corrects their address and the customers still get the wrong one.
+
+    Cases that were already queued or sent are deliberately SKIPPED: their stored
+    message is the record of what the customer actually received, and rewriting it
+    would falsify that (and it can't be un-sent anyway).
+
+    Returns how many messages were rebuilt.
+    """
+    done = 0
+    for case_id in queries.list_all_case_ids():
+        if queries.get_latest_comm_attempt(case_id):
+            continue                      # queued/sent — leave its message alone
+        if not queries.get_message(case_id):
+            continue                      # nothing generated yet; nothing to fix
+        try:
+            generate_single_message(case_id)
+            done += 1
+        except Exception as e:            # one bad case must not block the rest
+            print(f"[messages] could not regenerate {case_id}: {e}")
+    return done
+
+
 def queue_for_dispatch(case_id: str, retry: bool = False):
     """
     Create the initial 'pending' communication_attempt for a case, so the
