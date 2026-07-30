@@ -358,6 +358,44 @@ def sync():
                     "commands": cmd_list})
 
 
+@api_bp.route("/api/v1/command_ack", methods=["POST"])
+def command_ack():
+    """CSP reports what happened to a command it was handed by /sync, so the
+    portal can show "done" / "failed" instead of only "sent". Accepts nothing but
+    an id, a fixed result word and a short detail line — no data of any kind
+    flows back here beyond that."""
+    key = request.headers.get("X-API-Key", "")
+    body = request.get_json(silent=True) or {}
+    csp_id = str(body.get("csp_id") or "").strip()
+    with get_connection() as conn:
+        if not _valid_key(conn, csp_id, key):
+            return jsonify({"ok": False, "error": "invalid csp_id or API key"}), 401
+        try:
+            cmd_id = int(body.get("id"))
+        except (TypeError, ValueError):
+            return jsonify({"ok": False, "error": "id required"}), 400
+        result = str(body.get("result") or "")[:16]
+        if result not in ("ok", "error", "skipped", "deferred"):
+            result = "error"
+        detail = str(body.get("detail") or "")[:300]
+        # "deferred" means the CSP could not act YET (a batch was mid-send, and
+        # restarting would have abandoned a customer list). Put it back in the
+        # queue so the next poll re-delivers it — otherwise a CSP who is always
+        # sending at poll time would silently never get the update.
+        if result == "deferred":
+            cur = conn.execute(
+                "UPDATE commands SET status='pending', delivered_at=NULL, "
+                "result='deferred', detail=? WHERE id=? AND csp_id=?",
+                (detail, cmd_id, csp_id))
+        else:
+            # csp_id in the WHERE clause: a key can only ack its own commands.
+            cur = conn.execute(
+                "UPDATE commands SET status='done', result=?, detail=?, done_at=? "
+                "WHERE id=? AND csp_id=?", (result, detail, _now(), cmd_id, csp_id))
+        conn.commit()
+    return jsonify({"ok": True, "updated": cur.rowcount})
+
+
 @api_bp.route("/api/v1/report", methods=["POST"])
 def report():
     key = request.headers.get("X-API-Key", "")

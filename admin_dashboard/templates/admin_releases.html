@@ -1,0 +1,162 @@
+{% extends "admin_base.html" %}
+{% block title %}Releases — Eko Admin Portal{% endblock %}
+{% block autorefresh %}30{% endblock %}
+{% block body %}
+<h1>Releases</h1>
+<p class="sub">Publish an update from here. Nothing is pushed — each CSP app asks
+  this server every 5 minutes, downloads the package, checks its hash, and applies
+  it on its next start. No visit and no remote session is ever needed.</p>
+
+<div class="cards">
+  <div class="card"><div class="v">{{ published.version or '—' }}</div>
+    <div class="l">published</div></div>
+  <div class="card"><div class="v">{{ on_latest }} / {{ fleet|length }}</div>
+    <div class="l">CSPs on it</div></div>
+  <div class="card"><div class="v">{{ code_version or '—' }}</div>
+    <div class="l">code on this server</div></div>
+</div>
+
+<div class="panel">
+  <h2>Publish this server's current code</h2>
+  <p class="note" style="margin-top:0">
+    The package is built live from this server's checkout (which tracks
+    <code>main</code>), so the release process is just: push your code, then
+    publish here. The version you type is stamped into the package, so it is what
+    every CSP will report back — it must be higher than what they run now.
+  </p>
+  <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="action" value="publish_current">
+    <div style="max-width:150px">
+      <label class="l" for="version">version</label>
+      <input id="version" name="version" value="{{ suggested }}" required>
+    </div>
+    <label style="display:flex;align-items:center;gap:7px;font-size:13px;margin-bottom:12px">
+      <input type="checkbox" name="push_now" value="1" checked
+             style="width:auto;margin:0">
+      also tell every CSP to update immediately (they restart themselves)
+    </label>
+    <button type="submit" style="width:auto;padding:10px 18px;margin-bottom:12px">
+      Publish</button>
+  </form>
+  {% if published.version %}
+  <div class="kv" style="margin-top:6px">
+    <span class="k">package</span><span style="word-break:break-all">{{ published.url or '—' }}</span>
+    <span class="k">sha256</span><span style="word-break:break-all">{{ published.sha256 or '—' }}</span>
+    <span class="k">published</span><span>{{ published.at | ist if published.at else '—' }}</span>
+  </div>
+  {% endif %}
+</div>
+
+<div class="panel">
+  <h2>Fleet</h2>
+  <table>
+    <tr><th>CSP</th><th>Name</th><th>Running</th><th>Last seen</th><th></th></tr>
+    {% for f in fleet %}
+    <tr>
+      <td>{{ f.csp_id }}</td>
+      <td>{{ f.name }}</td>
+      <td>{{ f.version }}</td>
+      <td>{{ f.last_seen | ist if f.last_seen else 'never' }}
+        {% if f.online %}<span class="pill on">online</span>{% endif %}</td>
+      <td>
+        {% if f.current %}<span class="pill ok">up to date</span>
+        {% elif published.version %}<span class="pill off">will update</span>{% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not fleet %}<tr><td colspan="5" class="note">No active CSP keys yet.</td></tr>{% endif %}
+  </table>
+  <p class="note">A CSP shows "will update" until its next heartbeat reports the
+    new version — that is the only proof the update actually ran.</p>
+</div>
+
+<div class="panel">
+  <h2>Send a command</h2>
+  <p class="note" style="margin-top:0">
+    These are fixed actions built into the CSP app — the portal sends only the
+    name, never code or a shell command, and the CSP app runs it only if it
+    recognises it. None of them touch customer data.
+  </p>
+  <form method="post" style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap">
+    <input type="hidden" name="action" value="command">
+    <div style="min-width:190px">
+      <label class="l" for="command">command</label>
+      <select id="command" name="command"
+              style="width:100%;padding:9px 11px;margin:6px 0 12px;background:var(--sunk);
+                     border:1px solid var(--line);border-radius:8px;color:var(--ink)">
+        {% for name, label, _d in fleet_commands %}
+        <option value="{{ name }}">{{ label }}</option>
+        {% endfor %}
+      </select>
+    </div>
+    <div style="min-width:190px">
+      <label class="l" for="csp_id">for one CSP (blank = all)</label>
+      <input id="csp_id" name="csp_id" placeholder="e.g. 1A850895">
+    </div>
+    <button type="submit" style="width:auto;padding:10px 18px;margin-bottom:12px">
+      Queue</button>
+  </form>
+  <div class="kv">
+    {% for name, label, desc in fleet_commands %}
+    <span class="k">{{ label }}</span><span>{{ desc }}</span>
+    {% endfor %}
+  </div>
+</div>
+
+<div class="panel">
+  <h2>Command log</h2>
+  <table>
+    <tr><th>#</th><th>CSP</th><th>Command</th><th>Queued</th><th>Status</th><th>Outcome</th></tr>
+    {% for c in commands %}
+    <tr>
+      <td>{{ c.id }}</td>
+      <td>{{ c.csp_id }}</td>
+      <td>{{ c.command }}</td>
+      <td>{{ c.created_at | ist }}</td>
+      <td>
+        {% if c.result == 'ok' %}<span class="pill ok">done</span>
+        {% elif c.result == 'error' %}<span class="pill bad">failed</span>
+        {% elif c.result %}<span class="pill off">{{ c.result }}</span>
+        {% elif c.status == 'delivered' %}<span class="pill off">running</span>
+        {% else %}<span class="pill off">waiting for poll</span>{% endif %}
+      </td>
+      <td class="note" style="margin:0">{{ c.detail or '' }}</td>
+    </tr>
+    {% endfor %}
+    {% if not commands %}<tr><td colspan="6" class="note">Nothing queued yet.</td></tr>{% endif %}
+  </table>
+</div>
+
+<div class="panel">
+  <h2>Published packages</h2>
+  <table>
+    <tr><th>Version</th><th>Kind</th><th>Size</th><th>Built</th><th>sha256</th><th></th></tr>
+    {% for r in releases %}
+    <tr>
+      <td>{{ r.version or '—' }}
+        {% if r.version == published.version %}<span class="pill on">live</span>{% endif %}</td>
+      <td>{{ r.kind }}</td>
+      <td>{{ (r.size_bytes // 1024) }} KB</td>
+      <td>{{ r.uploaded_at | ist }}</td>
+      <td style="font-size:12px">{{ r.sha256[:16] }}…</td>
+      <td>
+        {% if r.version != published.version and r.kind == 'update' %}
+        <form method="post" style="margin:0">
+          <input type="hidden" name="action" value="republish">
+          <input type="hidden" name="release_id" value="{{ r.id }}">
+          <input type="hidden" name="push_now" value="1">
+          <button type="submit" style="width:auto;padding:5px 11px;font-size:12px">
+            Publish this</button>
+        </form>
+        {% endif %}
+      </td>
+    </tr>
+    {% endfor %}
+    {% if not releases %}<tr><td colspan="6" class="note">Nothing published yet.</td></tr>{% endif %}
+  </table>
+  <p class="note">Publishing an older row is the rollback: the fleet moves back to
+    it the same way it moved forward. A CSP that already applied a newer build
+    will not go back on its own, though — its version is higher, so send it
+    "Update now" after republishing.</p>
+</div>
+{% endblock %}

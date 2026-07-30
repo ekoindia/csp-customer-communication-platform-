@@ -390,11 +390,11 @@ def _is_newer(remote: str, local: str) -> bool:
     return bool(rt) and rt > lt
 
 
-def sync_once() -> dict:
-    """Poll the single Eko API ({base}/sync) for the latest version + any queued
-    commands (Eko can't push to this local PC). When a NEWER version is published
-    with a download URL, STAGE it (download + verify) so the launcher can apply it
-    at the next start. Never raises."""
+def fetch_sync() -> dict:
+    """One raw GET {base}/sync — the published version, its package URL/hash, and
+    any commands queued for this install. No side effects, so a command handler
+    can ask "what is published right now?" without re-triggering staging.
+    Never raises; returns {"ok": False, "error": ...} on any failure."""
     if not getattr(config, "ADMIN_REPORT_ENABLED", False):
         return {"ok": False, "error": "reporting disabled"}
     try:
@@ -404,6 +404,47 @@ def sync_once() -> dict:
             headers={"X-API-Key": config.ADMIN_API_KEY},
             params={"csp_id": config.ADMIN_CSP_ID}, timeout=10)
         data = r.json() if r.ok else {}
+        if not r.ok:
+            return {"ok": False, "error": f"HTTP {r.status_code}"}
+        data["ok"] = True
+        return data
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def ack_command(cmd_id, result: str, detail: str) -> bool:
+    """Tell the portal what happened to a command it handed over, so an admin can
+    see "done"/"failed" instead of only "sent". Best-effort, never raises."""
+    try:
+        import requests
+        r = requests.post(
+            _base() + "/command_ack",
+            headers={"X-API-Key": config.ADMIN_API_KEY, "Content-Type": "application/json"},
+            json={"csp_id": config.ADMIN_CSP_ID, "id": cmd_id,
+                  "result": result, "detail": detail}, timeout=10)
+        return bool(r.ok)
+    except Exception:
+        return False
+
+
+def sync_once() -> dict:
+    """Poll the single Eko API ({base}/sync) for the latest version + any queued
+    commands (Eko can't push to this local PC), then act on both:
+
+      • a NEWER published version is downloaded + hash-verified + STAGED here, and
+        applied by the launcher at the next app start;
+      • queued commands are executed by core.commands, which enforces its own
+        allow-list of fixed maintenance actions (see that module's header for the
+        security boundary) and acks each outcome.
+
+    Together these are what let Eko fix or update an install from the portal with
+    the CSP doing nothing. Never raises."""
+    if not getattr(config, "ADMIN_REPORT_ENABLED", False):
+        return {"ok": False, "error": "reporting disabled"}
+    try:
+        data = fetch_sync()
+        if not data.get("ok"):
+            return data
         latest = data.get("latest_version")
         staged = None
         local = getattr(config, "APP_VERSION", "0")
@@ -421,10 +462,16 @@ def sync_once() -> dict:
                         print(f"[admin-sync] update {latest} staged; will apply on next start")
                     else:
                         print(f"[admin-sync] staging failed: {res.get('error')}")
-        for cmd in data.get("commands", []):
-            print(f"[admin-sync] command received: {cmd.get('command')}")
-        return {"ok": r.ok, "latest_version": latest, "staged": staged,
-                "commands": data.get("commands", [])}
+        # Carry out whatever Eko queued. run_queued() runs a restarting command
+        # last and acks it BEFORE the process exits, so the portal still learns
+        # the outcome even though this instance is about to disappear.
+        done = []
+        cmds = data.get("commands") or []
+        if cmds:
+            from core import commands as remote_commands
+            done = remote_commands.run_queued(cmds, ack=ack_command)
+        return {"ok": True, "latest_version": latest, "staged": staged,
+                "commands": cmds, "executed": done}
     except Exception as e:
         return {"ok": False, "error": str(e)}
 

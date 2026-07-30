@@ -184,6 +184,212 @@ def api_keys():
     return render_template("admin_api_keys.html", keys=keys, new_key=new_key)
 
 
+# Commands an admin may queue for a CSP install. This list is for the UI only —
+# the CSP side enforces its OWN copy of the allow-list (csp_dashboard/core/
+# commands.py), so a compromised or buggy server can never make a CSP PC run
+# something that isn't one of these fixed, code-defined actions.
+FLEET_COMMANDS = [
+    ("update_now",     "Update now",
+     "Fetch the published version immediately instead of waiting for the next "
+     "5-minute poll, then restart the app to apply it."),
+    ("restart_app",    "Restart the app",
+     "Restart the dashboard + WhatsApp bridge. Waits if a batch is mid-send."),
+    ("selfheal",       "Run self-heal",
+     "Run the full diagnose-and-repair pass (Node/Baileys/port/session/webhook)."),
+    ("reset_whatsapp", "Reset WhatsApp session",
+     "Clear a dead WhatsApp session so a fresh QR is generated. The CSP must "
+     "scan the new QR — use only when the link is already broken."),
+    ("send_report",    "Send a fresh report",
+     "Push an immediate status heartbeat so this portal is up to date."),
+]
+_FLEET_COMMAND_NAMES = {c[0] for c in FLEET_COMMANDS}
+
+
+def _cfg_get(conn, key, default=None):
+    row = conn.execute("SELECT value FROM server_config WHERE key=?", (key,)).fetchone()
+    return row["value"] if row else default
+
+
+def _cfg_set(conn, key, value):
+    conn.execute("INSERT INTO server_config (key, value) VALUES (?,?) "
+                 "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                 (key, str(value)))
+
+
+def _vtuple(v):
+    try:
+        return tuple(int(x) for x in str(v or "").strip().split("."))
+    except (TypeError, ValueError):
+        return ()
+
+
+def _next_version(*candidates) -> str:
+    """Suggest the next publishable version: highest version seen anywhere
+    (published, this checkout, or any CSP in the fleet) with the patch bumped.
+    A published version MUST be strictly newer than what a CSP runs, or that CSP
+    will never see it — so the default is always a real increment."""
+    best = max((_vtuple(c) for c in candidates if _vtuple(c)), default=(1, 0, 0))
+    best = best + (0,) * (3 - len(best)) if len(best) < 3 else best
+    return ".".join(str(x) for x in (best[0], best[1], best[2] + 1))
+
+
+def _unreachable_host(url: str) -> bool:
+    """A published URL is fetched by a CSP PC across the internet, but it is built
+    from the hostname THIS admin happens to be browsing with. If that is
+    localhost, the fleet would download nothing and no CSP would ever update —
+    worth saying out loud at publish time rather than discovering later."""
+    return bool(re.match(r"^https?://(127\.0\.0\.1|localhost|0\.0\.0\.0)(:|/|$)", url or ""))
+
+
+def _publish_release(conn, release_id: int):
+    """Point the fleet at an already-stored release: /sync starts advertising it,
+    every CSP downloads + sha-verifies it on its next poll, and applies it on the
+    next app start. Rolling back = publishing an older release row again."""
+    row = conn.execute("SELECT * FROM releases WHERE id=?", (release_id,)).fetchone()
+    if not row:
+        return None
+    url = url_for("admin_ui.download_release", release_id=row["id"],
+                  filename=row["filename"], _external=True)
+    if _unreachable_host(url):
+        flash(f"Warning: the package URL was built as {url} — a CSP PC cannot "
+              f"reach that. Open this portal on the address CSPs use "
+              f"(the same host as their OCR endpoint) and publish again.")
+    _cfg_set(conn, "latest_version", row["version"])
+    _cfg_set(conn, "update_url", url)
+    _cfg_set(conn, "update_sha256", row["sha256"])
+    _cfg_set(conn, "published_at", _now_iso())
+    return row
+
+
+def _queue_command(conn, csp_id: str, command: str, payload: str = None):
+    conn.execute("INSERT INTO commands (csp_id, command, payload, status, created_at) "
+                 "VALUES (?,?,?, 'pending', ?)",
+                 (csp_id, command, payload, _now_iso()))
+
+
+@ui_bp.route("/releases", methods=["GET", "POST"])
+@login_required
+def releases():
+    """Publish a software update to the whole fleet — the one page that makes an
+    update a one-click job HERE instead of a visit or a remote session THERE.
+
+    How the update reaches a CSP PC (nothing is ever pushed — a CSP sits behind
+    NAT with no inbound access):
+      1. Publish here  -> server_config.latest_version / update_url / sha256.
+      2. The CSP app polls /api/v1/sync (every 5 min), sees a newer version,
+         downloads the pinned package and verifies its sha256, and stages it.
+      3. It applies at the next app start (Windows won't let a running process
+         overwrite its own files), and 'update_now' below makes that restart
+         happen straight away instead of at the CSP's next open.
+    The package is built from THIS server's checkout, so 'git push' + publish is
+    the whole release process."""
+    if request.method == "POST":
+        action = request.form.get("action")
+
+        if action == "publish_current":
+            version = (request.form.get("version") or "").strip()
+            if not _vtuple(version):
+                flash("Version must be numeric like 1.0.1 — CSPs compare it "
+                      "number-by-number to decide what is newer.")
+                return redirect(url_for("admin_ui.releases"))
+            data = build_csp_app_zip(version)
+            if data is None:
+                flash("This server has no csp_dashboard/ checkout to package.")
+                return redirect(url_for("admin_ui.releases"))
+            os.makedirs(RELEASES_DIR, exist_ok=True)
+            filename = f"csp_app_{version}.zip"
+            stored = f"{uuid.uuid4().hex}_{filename}"
+            with open(os.path.join(RELEASES_DIR, stored), "wb") as f:
+                f.write(data)
+            digest = hashlib.sha256(data).hexdigest()
+            with get_connection() as conn:
+                cur = conn.execute(
+                    """INSERT INTO releases (kind, version, filename, stored_name,
+                           sha256, size_bytes, uploaded_at)
+                       VALUES ('update',?,?,?,?,?,?)""",
+                    (version, filename, stored, digest, len(data), _now_iso()))
+                rid = cur.lastrowid
+                _publish_release(conn, rid)
+                pushed = 0
+                if request.form.get("push_now"):
+                    for r in conn.execute(
+                            "SELECT csp_id FROM api_keys WHERE active=1").fetchall():
+                        _queue_command(conn, r["csp_id"], "update_now")
+                        pushed += 1
+                conn.commit()
+            flash(f"Published v{version} ({len(data) >> 10} KB)." +
+                  (f" {pushed} CSP(s) told to update immediately — they will "
+                   f"fetch it within ~5 minutes and restart themselves."
+                   if pushed else
+                   " CSPs will pick it up on their next poll and apply it at "
+                   "their next app start."))
+            return redirect(url_for("admin_ui.releases"))
+
+        if action == "republish":
+            with get_connection() as conn:
+                row = _publish_release(conn, int(request.form.get("release_id", 0)))
+                pushed = 0
+                if row and request.form.get("push_now"):
+                    for r in conn.execute(
+                            "SELECT csp_id FROM api_keys WHERE active=1").fetchall():
+                        _queue_command(conn, r["csp_id"], "update_now")
+                        pushed += 1
+                conn.commit()
+            flash(f"Now publishing v{row['version']} again."
+                  if row else "That release no longer exists.")
+            return redirect(url_for("admin_ui.releases"))
+
+        if action == "command":
+            cmd = (request.form.get("command") or "").strip()
+            target = (request.form.get("csp_id") or "").strip()
+            if cmd not in _FLEET_COMMAND_NAMES:
+                flash("Unknown command.")
+                return redirect(url_for("admin_ui.releases"))
+            with get_connection() as conn:
+                if target:
+                    _queue_command(conn, target, cmd)
+                    n = 1
+                else:
+                    rows = conn.execute(
+                        "SELECT csp_id FROM api_keys WHERE active=1").fetchall()
+                    for r in rows:
+                        _queue_command(conn, r["csp_id"], cmd)
+                    n = len(rows)
+                conn.commit()
+            flash(f"Queued '{cmd}' for {n} CSP(s). It runs when each one next "
+                  f"polls (within ~5 minutes) — nothing for the CSP to do.")
+            return redirect(url_for("admin_ui.releases"))
+
+    with get_connection() as conn:
+        published = {"version": _cfg_get(conn, "latest_version"),
+                     "url": _cfg_get(conn, "update_url"),
+                     "sha256": _cfg_get(conn, "update_sha256"),
+                     "at": _cfg_get(conn, "published_at")}
+        rel_rows = conn.execute(
+            "SELECT * FROM releases ORDER BY id DESC LIMIT 25").fetchall()
+        fleet = conn.execute(
+            """SELECT k.csp_id, c.name, c.version, c.last_seen
+                 FROM api_keys k LEFT JOIN csps c ON c.csp_id = k.csp_id
+                WHERE k.active=1 ORDER BY k.csp_id""").fetchall()
+        cmd_rows = conn.execute(
+            "SELECT * FROM commands ORDER BY id DESC LIMIT 40").fetchall()
+    code_version = server_code_version()
+    fleet_view = [{"csp_id": r["csp_id"], "name": r["name"] or "",
+                   "version": r["version"] or "—", "last_seen": r["last_seen"],
+                   "online": _is_online(r["last_seen"]),
+                   "current": bool(published["version"]
+                                   and r["version"] == published["version"])}
+                  for r in fleet]
+    on_latest = sum(1 for f in fleet_view if f["current"])
+    suggested = _next_version(published["version"], code_version,
+                              *[f["version"] for f in fleet_view])
+    return render_template("admin_releases.html", published=published,
+                           releases=rel_rows, fleet=fleet_view,
+                           on_latest=on_latest, code_version=code_version,
+                           suggested=suggested, commands=cmd_rows,
+                           fleet_commands=FLEET_COMMANDS)
+
+
 @ui_bp.route("/login", methods=["GET", "POST"])
 def login():
     if request.method == "POST":
@@ -516,6 +722,58 @@ _CSP_ZIP_EXCLUDE_NESTED = {"core/models"}
 _CSP_ZIP_EXCLUDE_FILES = {".env", "secret.key", "pii.key", "csp_platform.db"}
 _CSP_ZIP_EXCLUDE_EXT = {".pyc", ".db"}
 
+CSP_APP_DIR = os.path.join(os.path.dirname(_DIR), "csp_dashboard")
+
+
+def build_csp_app_zip(version: str = None):
+    """Build the slim CSP app package from THIS server's own checkout and return
+    it as bytes (None if the checkout is missing).
+
+    Everything lands under a single `csp_dashboard/` folder, which is what both
+    consumers expect: CSP_Setup.bat for a fresh install, and the CSP-side
+    updater, whose _zip_root() unwraps a single top folder and stages its
+    contents as the app root.
+
+    `version`, when given, OVERWRITES the VERSION file inside the package. That
+    file is the one thing an update hinges on — config.APP_VERSION reads it, the
+    CSP reports it on every heartbeat, and /sync compares it — so stamping it at
+    publish time is what makes "publish 1.0.1" actually reach the fleet, instead
+    of depending on someone having remembered to bump VERSION in git first."""
+    if not os.path.isdir(CSP_APP_DIR):
+        return None
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        for root, dirs, files in os.walk(CSP_APP_DIR):
+            rel = os.path.relpath(root, CSP_APP_DIR).replace("\\", "/")
+            kept = []
+            for d in dirs:
+                child = d if rel == "." else rel + "/" + d
+                if d in _CSP_ZIP_EXCLUDE_DIRS or child in _CSP_ZIP_EXCLUDE_NESTED:
+                    continue
+                kept.append(d)
+            dirs[:] = kept
+            for f in files:
+                if f in _CSP_ZIP_EXCLUDE_FILES or os.path.splitext(f)[1] in _CSP_ZIP_EXCLUDE_EXT:
+                    continue
+                if version and rel == "." and f == "VERSION":
+                    continue                      # replaced below with the published one
+                full = os.path.join(root, f)
+                arc = "csp_dashboard/" + os.path.relpath(full, CSP_APP_DIR).replace("\\", "/")
+                z.write(full, arc)
+        if version:
+            z.writestr("csp_dashboard/VERSION", version.strip() + "\n")
+    return buf.getvalue()
+
+
+def server_code_version() -> str:
+    """The VERSION currently in this server's checkout (the code that would be
+    published right now)."""
+    try:
+        with open(os.path.join(CSP_APP_DIR, "VERSION"), encoding="utf-8") as f:
+            return f.read().strip()
+    except OSError:
+        return ""
+
 
 @ui_bp.route("/download/csp_app.zip")
 def download_csp_app():
@@ -530,27 +788,9 @@ def download_csp_app():
     for /api/v1/ocr/extract — downloads fast and reliably. Not behind
     login_required: a brand-new CSP has no key yet, and the package carries no
     customer data."""
-    csp_dir = os.path.join(os.path.dirname(_DIR), "csp_dashboard")
-    if not os.path.isdir(csp_dir):
+    data = build_csp_app_zip()
+    if data is None:
         return ("CSP app not found on this server.", 500)
-    buf = io.BytesIO()
-    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
-        for root, dirs, files in os.walk(csp_dir):
-            rel = os.path.relpath(root, csp_dir).replace("\\", "/")
-            kept = []
-            for d in dirs:
-                child = d if rel == "." else rel + "/" + d
-                if d in _CSP_ZIP_EXCLUDE_DIRS or child in _CSP_ZIP_EXCLUDE_NESTED:
-                    continue
-                kept.append(d)
-            dirs[:] = kept
-            for f in files:
-                if f in _CSP_ZIP_EXCLUDE_FILES or os.path.splitext(f)[1] in _CSP_ZIP_EXCLUDE_EXT:
-                    continue
-                full = os.path.join(root, f)
-                arc = "csp_dashboard/" + os.path.relpath(full, csp_dir).replace("\\", "/")
-                z.write(full, arc)
-    data = buf.getvalue()
     return Response(data, mimetype="application/zip",
                     headers={"Content-Disposition": "attachment; filename=csp_app.zip",
                              "Content-Length": str(len(data))})

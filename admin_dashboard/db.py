@@ -35,6 +35,13 @@ def setup():
             if col not in pcols:
                 conn.execute(
                     f"ALTER TABLE progress ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0")
+        # Forward-migration: a queued command now reports back what happened on
+        # the CSP PC, so "update sent" can be told apart from "update ran".
+        ccols = {r["name"] for r in conn.execute("PRAGMA table_info(commands)")}
+        for col, decl in (("result", "TEXT"), ("detail", "TEXT"),
+                          ("done_at", "TEXT")):
+            if col not in ccols:
+                conn.execute(f"ALTER TABLE commands ADD COLUMN {col} {decl}")
         conn.execute(
             """CREATE TABLE IF NOT EXISTS ocr_metrics (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,

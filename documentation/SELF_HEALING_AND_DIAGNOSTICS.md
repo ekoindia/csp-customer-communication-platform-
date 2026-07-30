@@ -108,6 +108,54 @@ Run automatically by `CSP_FIX_ALL.bat`, or by hand: `python -m core.selfheal`.
 
 ---
 
+## Stage 7 — Repair and update from Eko, with the CSP doing nothing
+
+A CSP is not a computer operator. Telling them to close a window, run a `.bat` or
+re-scan something is how an install stays broken for days, and nobody can reach
+into their PC — it sits behind NAT with no inbound access. So the app **asks**, on
+a 5-minute timer, and acts on the answer itself.
+
+**Publishing an update** (`Releases` page on the admin portal):
+
+1. Eko pushes code, then clicks **Publish** with a version number. The portal
+   builds the slim package from its own checkout, stamps that version into the
+   package's `VERSION` file, stores it, hashes it, and advertises
+   `latest_version` / `update_url` / `update_sha256`.
+2. Each CSP app polls `/api/v1/sync`, sees a newer version, downloads the pinned
+   package, **verifies its sha256**, and stages it (`core/updater.py`).
+3. It is applied by the launcher at the next app start — Windows will not let a
+   running process overwrite its own files, so "restart" and "apply" are the same
+   operation. `config.py`, the SQLite DB, `.env`, keys, uploads and the WhatsApp
+   session are never touched; every replaced file is kept for rollback.
+4. Proof it worked is the CSP's next heartbeat reporting the new version — the
+   Releases page shows "up to date" only then, never on "sent".
+
+**Making it happen the same day** — the portal can queue one of exactly five
+fixed maintenance actions (`core/commands.py`): `update_now`, `restart_app`,
+`selfheal`, `reset_whatsapp`, `send_report`. The app runs it on its next poll and
+reports the outcome back, so the CSP is never asked to do anything.
+
+| The command channel MAY | It MUST NEVER (and cannot) |
+|---|---|
+| restart this app / apply an already-published update | run arbitrary code, a shell command, or anything not in the five-name list |
+| re-run the app's own repair logic (`selfheal`) | read, export or transmit customer data — the northbound payload is unchanged |
+| clear a **dead** WhatsApp session so a fresh QR appears | touch a **healthy** session (that would cost the CSP a QR scan — reported as `skipped`) |
+| push an immediate status heartbeat | take a file path, URL or SQL from the server |
+| roll an install back to a republished older version | interrupt a batch mid-send (see below) |
+
+The security boundary is that the portal sends a **name**, never code, and the
+CSP side holds the only list of names that mean anything. An unrecognised name is
+refused and reported as refused. Every executed command is written to the CSP's
+**own** audit trail as `remote_<name>`, so the CSP can always see what Eko did on
+their machine.
+
+**Mid-send safety.** Anything that restarts first checks `core.comm_runner`. If a
+batch is being sent, the command reports `deferred`, the portal puts it back in
+the queue, and it runs after the batch finishes — a dispatch loop is never killed
+halfway through a customer list, and the command is never lost either.
+
+---
+
 ## What is deliberately NOT self-healed
 
 Honest list — these need a human, and the software says so rather than pretending:
@@ -124,6 +172,11 @@ Honest list — these need a human, and the software says so rather than pretend
    Parallelism helps throughput, not per-page latency; a GPU is the real fix.
 6. **A WhatsApp block from repeated attempts.** The backoff stops making it worse
    and tells the CSP to wait — it cannot un-block the number.
+7. **An install that is switched off.** Update and repair both need the app to
+   poll, so a PC that stays closed for a week updates on the day it is next
+   opened. Nothing is lost — the command queue and the published version wait.
+8. **Re-linking WhatsApp.** A dead session can be cleared remotely, but scanning
+   the new QR needs the phone in the CSP's hand.
 
 ## Test coverage
 
@@ -133,4 +186,11 @@ per-upload dedup, connection self-diagnosis), `test_extraction.py` (0-row
 self-diagnosis, format-agnostic carry), `test_column_mapper.py` (all real header
 layouts), `test_account_name_join.py`, `test_dispatcher_contract.py` (a refusal is
 a failure), `test_approval.py` (retry, batch not abandoned, no status drag-back),
-`test_settings_message_refresh.py`, `test_reporting_bifurcation.py`. **223 passing.**
+`test_settings_message_refresh.py`, `test_reporting_bifurcation.py`,
+`test_remote_commands.py` (allow-list refusal, a raising handler is reported not
+fatal, restart deferred mid-send, restart runs last and is acked before the exit,
+rollback staging still hash-verified, every command audited locally),
+`test_releases.py` (published bytes match the advertised hash, the package carries
+the published VERSION and still no OCR weights, a command reaches only its own
+CSP, deferred is re-queued, a CSP cannot ack another's command).
+**251 passing.**

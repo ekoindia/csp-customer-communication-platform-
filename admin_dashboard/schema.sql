@@ -183,9 +183,12 @@ CREATE TABLE IF NOT EXISTS commands (
     csp_id       TEXT NOT NULL,
     command      TEXT NOT NULL,
     payload      TEXT,
-    status       TEXT NOT NULL DEFAULT 'pending',   -- pending | delivered
+    status       TEXT NOT NULL DEFAULT 'pending',   -- pending | delivered | done
     created_at   TEXT NOT NULL,
-    delivered_at TEXT
+    delivered_at TEXT,
+    result       TEXT,          -- ok | error | skipped  (reported by the CSP)
+    detail       TEXT,          -- one-line outcome, e.g. 'restarting to apply 1.0.1'
+    done_at      TEXT
 );
 
 -- Admin portal login users.

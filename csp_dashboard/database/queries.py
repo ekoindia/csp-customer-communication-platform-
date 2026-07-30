@@ -961,6 +961,30 @@ def insert_audit_log(user_id: int, action: str, detail: Optional[str] = None):
         conn.commit()
 
 
+def insert_system_audit(action: str, detail: Optional[str] = None) -> bool:
+    """Audit an action that no logged-in CSP performed — specifically a command
+    Eko queued from the admin portal and this install carried out on its own.
+
+    The CSP must be able to SEE anything Eko triggered on their machine, so these
+    land in the same audit trail the CSP reads (dashboard -> audit), never in a
+    hidden log. audit_logs.user_id has an enforced FK to users, so this attributes
+    the row to this install's own account; the `action` name (always prefixed
+    `remote_`) is what marks it as portal-initiated. Best-effort: an audit write
+    must never be the reason a repair fails, so it never raises."""
+    try:
+        with get_connection() as conn:
+            row = conn.execute("SELECT id FROM users ORDER BY id LIMIT 1").fetchone()
+            if not row:
+                return False
+            conn.execute(
+                "INSERT INTO audit_logs (user_id, action, detail, created_at) "
+                "VALUES (?,?,?,?)", (row["id"], action, detail, _now()))
+            conn.commit()
+        return True
+    except Exception:
+        return False
+
+
 def list_audit_logs(limit: int = 200) -> list:
     with get_connection() as conn:
         return conn.execute(
