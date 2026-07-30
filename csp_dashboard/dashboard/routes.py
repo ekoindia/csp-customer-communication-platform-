@@ -931,7 +931,16 @@ def channel_status():
         else:
             wa_detail = "starting / awaiting QR scan"
     except requests.RequestException:
+        # Not running — say WHY if the bridge left a reason in its log, instead of a
+        # bare "server not running" that tells the CSP (and us) nothing.
         wa_detail = "server not running"
+        try:
+            from core.selfheal import last_bridge_error
+            reason = last_bridge_error()
+            if reason:
+                wa_detail = f"server not running — {reason}"
+        except Exception:
+            pass
 
     # SMS — MSG91 considered configured if an auth key is present
     sms_configured = bool(config.MSG91_AUTH_KEY)
@@ -977,13 +986,28 @@ def start_whatsapp_server():
     )
     npm_cmd = "npm.cmd" if os.name == "nt" else "npm"
     creationflags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
+    # Keep the bridge's output. It used to go to DEVNULL, so when the bridge failed
+    # to start the dashboard could only say "server not running" and the actual
+    # reason (a missing dependency, an ESM load error, port 3000 taken) was thrown
+    # away — that is what made a 10-minute problem take hours. Now it lands in a
+    # log the status endpoint and the self-heal engine can read.
+    log_path = os.path.join(whatsapp_dir, "wa_server.log")
+    # Pass the webhook token through: Flask REQUIRES the X-Webhook-Token header
+    # when config.WEBHOOK_TOKEN is set, and the bridge only sends it when it has
+    # the env var. Without this, every delivery ACK is rejected and cases stay
+    # stuck at "sent" while actually being delivered.
+    env = os.environ.copy()
+    if getattr(config, "WEBHOOK_TOKEN", ""):
+        env["WEBHOOK_TOKEN"] = config.WEBHOOK_TOKEN
     try:
+        logf = open(log_path, "a", buffering=1, encoding="utf-8", errors="replace")
         subprocess.Popen(
             [npm_cmd, "start"],
             cwd=whatsapp_dir,
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
+            stdout=logf,
+            stderr=subprocess.STDOUT,
             creationflags=creationflags,
+            env=env,
         )
     except OSError as e:
         return jsonify({"ok": False, "error": str(e)}), 500
