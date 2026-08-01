@@ -19,6 +19,25 @@ PY=".venv_linux/bin/python"
 # page hogging 16 threads. ~6 threads x ~8 concurrent jobs ~= 48 ~= the 40 cores.
 export TORCH_MAX_THREADS="${TORCH_MAX_THREADS:-6}"
 
+# Stronger ROW DETECTION on the server only. db_resnet50.onnx (100 MB) is already
+# committed in csp_dashboard/core/models/, so this needs no download and cannot
+# fail closed — core/ocr_table._build_bundled_onnxtr falls back to db_mobilenet if
+# the file is ever absent. Recognition stays crnn_vgg16_bn (measured best on
+# account/mobile digits), so this only fixes rows that db_mobilenet misses on
+# dense pages. The 4 GB CSP box never sets this and keeps db_mobilenet.
+export OCR_ONNXTR_DET="${OCR_ONNXTR_DET:-resnet50}"
+
+# This box (and ONLY this box) may fetch OCR model weights it doesn't carry —
+# needed if OCR_ONNXTR_HEAVY is ever switched on, since parseq is not bundled.
+# Weights are software, not customer data, so DPDP is unaffected. A CSP box must
+# never download models on its own, which is why the default stays 0 in config.py.
+export OCR_ALLOW_MODEL_DOWNLOAD="${OCR_ALLOW_MODEL_DOWNLOAD:-1}"
+
+# OCR_ONNXTR_HEAVY (db_resnet50 + parseq) is deliberately NOT exported yet: parseq
+# recognition on CPU is much slower and must be latency-benchmarked on a real
+# multi-page scan first (csp_dashboard/scripts/ocr_benchmark.py) so a big scan
+# can't exceed SERVER_OCR_TIMEOUT_SEC. Flip it here once that is measured.
+
 echo "Freeing port $PORT ..."
 if command -v lsof >/dev/null 2>&1; then
     lsof -ti:"$PORT" | xargs -r kill 2>/dev/null || true

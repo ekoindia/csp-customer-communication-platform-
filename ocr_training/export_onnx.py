@@ -1,7 +1,12 @@
-"""Export the fine-tuned CRNN checkpoint to the deployed ONNX model.
+"""Export the synthetic-trained CRNN checkpoint to the deployed ONNX model.
 Backs up the current crnn.onnx first. Input/output names match core/ocr_onnx.py
 ('image' -> 'logits'); CPU-only, tiny — runs on the 4 GB CSP box via onnxruntime.
-Usage: python export_onnx.py [checkpoints/crnn_ft.pt]"""
+
+DPDP: only `checkpoints/crnn.pt` (trained purely on synth.py output) may be
+exported. Never export a checkpoint fine-tuned on real customer documents — see
+documentation/OCR_CUSTOM_MODEL_PLAN.md §4a.
+
+Usage: python export_onnx.py [checkpoints/crnn.pt]"""
 import os
 import shutil
 import sys
@@ -11,7 +16,7 @@ import torch
 from model import CRNN
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-CKPT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "checkpoints", "crnn_ft.pt")
+CKPT = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "checkpoints", "crnn.pt")
 OUT = os.path.join(os.path.dirname(HERE), "csp_dashboard", "core", "models", "crnn.onnx")
 
 

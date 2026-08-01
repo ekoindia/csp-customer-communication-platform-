@@ -90,7 +90,7 @@ def seeded_case(db):
         case_id="C_TEST", batch_id="B_TEST", campaign_id="inoperative_accounts",
         account_number="3577864748", name="RAMESH KUMAR", mobile="9876543210",
         father_name="RAJU KUMAR", balance_band="100<1000",
-        village="Ahiraule", taluka="Tamkuhi Raj", address="VILL-AHIRAULI",
+        village="Testpur", taluka="Tamkuhi Raj", address="VILL-TESTPUR",
         band_label="100<1000", tone="normal", template_id="template_1",
         is_sensitive=False,
     )

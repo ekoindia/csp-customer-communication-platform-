@@ -9,15 +9,15 @@ from database import queries
 def test_edit_all_fields_reencrypts_and_reads_back(seeded_case):
     r = queries.update_case_fields(seeded_case, {
         "name": "RAMESH KUMAAR", "mobile": "9876500001",
-        "father_name": "RAJU KUMAAR", "village": "Ahirauli",
-        "taluka": "Tamkuhi", "address": "VILL-AHIRAULI NEW",
+        "father_name": "RAJU KUMAAR", "village": "Testpuri",
+        "taluka": "Sample Block", "address": "VILL-TESTPUR NEW",
     })
     assert r["ok"] is True
     case = queries.get_case(seeded_case)
     assert case["name"] == "RAMESH KUMAAR"          # decrypts back
     assert case["mobile"] == "9876500001"
-    assert case["village"] == "Ahirauli"
-    assert case["address"] == "VILL-AHIRAULI NEW"
+    assert case["village"] == "Testpuri"
+    assert case["address"] == "VILL-TESTPUR NEW"
 
 
 def test_account_number_edit_updates_dedup_index(seeded_case):

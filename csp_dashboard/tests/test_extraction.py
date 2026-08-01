@@ -17,7 +17,7 @@ def test_build_draft_flags_rows(db, tmp_path, monkeypatch):
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     path = _csv(tmp_path,
         "Account Number,Name,Mobile,Balance Band,Village\n"
-        "1,RAMESH,9876543210,100<1000,Ahiraule\n"
+        "1,RAMESH,9876543210,100<1000,Testpur\n"
         "2,SITA,,B>10000,Tamkuhi\n")          # no mobile (unreachable)
     draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
     rows = extraction.load_draft(draft_id)["rows"]
@@ -143,13 +143,13 @@ def test_format_agnostic_carries_all_columns(db, tmp_path, monkeypatch):
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     path = _csv(tmp_path,
         "BRANCH_NAME,ACNO,NAME,FTHR_NM,MOBILE_NBR,VILLAGE,ADDRESS_WITH_PIN\n"
-        "SAMPLEBR,99990000001,TEST KUMAR,RAM,9990000007,Testpur,VILL-X DIST-Y\n")
+        "SAMPLEBR,99990000001,TEST KUMAR,RAM,9990000001,Testpur,VILL-X DIST-Y\n")
     draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
     rows = extraction.load_draft(draft_id)["rows"]
     assert len(rows) == 1
     assert rows[0]["account_number"] == "99990000001"   # ACNO mapped
     assert rows[0]["name"] == "TEST KUMAR"              # NAME (not BRANCH_NAME)
-    assert rows[0]["mobile"] == "9990000007"            # MOBILE_NBR mapped
+    assert rows[0]["mobile"] == "9990000001"            # MOBILE_NBR mapped
     # every original column preserved for display, incl. ones we don't map
     assert rows[0]["_all"]["ADDRESS_WITH_PIN"] == "VILL-X DIST-Y"
     assert rows[0]["_all"]["BRANCH_NAME"] == "SAMPLEBR"
@@ -163,7 +163,7 @@ def test_all_columns_carried_without_internal_keys(db, tmp_path, monkeypatch):
     os.makedirs(config.UPLOAD_FOLDER, exist_ok=True)
     path = _csv(tmp_path,
         "ACNO,NAME,FTHR_NM,MOBILE_NBR,VILLAGE,ADDRESS_WITH_PIN,REKYC_DUE,AGENT\n"
-        "99990000001,TEST KUMAR,RAM,9990000007,Testpur,VILL-X 800001,Y,1A850016\n")
+        "99990000001,TEST KUMAR,RAM,9990000001,Testpur,VILL-X 800001,Y,1A850016\n")
     draft_id = extraction.build_draft([path], "inoperative_accounts", ["bank.csv"])
     rows = extraction.load_draft(draft_id)["rows"]
     all_cols = rows[0]["_all"]

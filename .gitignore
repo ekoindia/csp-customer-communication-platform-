@@ -29,7 +29,10 @@ config_local.py
 csp_dashboard/data/
 **/data/*.pdf
 **/data/*.tiff
-# OCR training data = REAL customer account/mobile digit crops + labels.
+# Training on real customer documents is PROHIBITED (DPDP remediation
+# 2026-07-31 — see documentation/OCR_CUSTOM_MODEL_PLAN.md §4a). These paths are
+# kept ignored purely as a safety net so that if such data is ever produced
+# again it cannot be committed. Training uses ocr_training/synth.py output only.
 ocr_training/real_cells/
 ocr_training/checkpoints/
 ocr_training/label.html

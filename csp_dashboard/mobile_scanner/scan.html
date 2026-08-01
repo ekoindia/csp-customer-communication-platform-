@@ -13,7 +13,7 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="CSP Scan">
 <!--
-  CSP mobile scanner — CLIENT-SIDE / ZERO-UPLOAD.
+  CSP mobile scanner — CLIENT-SIDE / ZERO-UPLOAD, ZERO EXTERNAL ORIGIN.
   Runs entirely in the phone's browser. The photo is OCR'd on-device (Tesseract.js
   WASM); it is NEVER uploaded anywhere. The extracted rows are turned into an Excel
   and ENCRYPTED into a .cspx (AES-256-GCM, key from a passphrase via PBKDF2) using
@@ -21,12 +21,30 @@
   (see csp_dashboard/core/import_crypto.py). Only that encrypted blob leaves the
   phone (over WhatsApp/share), so customer PII never travels in the clear.
 
-  Library JS (Tesseract.js, SheetJS) loads from a CDN — that is program code, not
-  customer data; the image + the extracted PII never go to any server.
+  DPDP (remediation 2026-07-31): every library is VENDORED under lib/ and loaded
+  from this page's own origin. It used to load Tesseract.js/SheetJS/PDF.js from
+  cdn.jsdelivr.net and the language data from tessdata.projectnaptha.com. Even
+  though no image was ever uploaded, a third party controlling that script could
+  have read the bank document and the extracted PII straight out of this page —
+  so on a page that handles customer data, a CDN is not "just program code".
+  The Content-Security-Policy below now blocks EVERY external origin outright:
+  no CDN, no analytics, no network path off this device for the scan at all.
+  Integrity of the vendored copies: lib/SHA256SUMS.
 -->
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<meta http-equiv="Content-Security-Policy" content="
+  default-src 'self';
+  script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' blob:;
+  worker-src 'self' blob:;
+  child-src 'self' blob:;
+  connect-src 'self' blob: data:;
+  img-src 'self' blob: data:;
+  style-src 'self' 'unsafe-inline';
+  font-src 'self';
+  media-src 'none'; object-src 'none'; frame-src 'none';
+  base-uri 'none'; form-action 'none'">
+<script src="lib/tesseract.min.js"></script>
+<script src="lib/xlsx.full.min.js"></script>
+<script src="lib/pdf.min.js"></script>
 <style>
   :root{--bg:#0d5e66;--bg2:#12847a;--card:#fff;--ink:#12303a;--soft:#5b6b74;
         --line:#d9e2e6;--accent:#f5a623;--ok:#1a9e5f;--bad:#c0392b;}
@@ -68,7 +86,7 @@
 <body>
 <header>
   <h1>CSP Document Scanner</h1>
-  <p>Scans on this phone only. Nothing is uploaded — the file is encrypted before it leaves.</p>
+  <p>Scans on this phone only — no internet used. The file is encrypted before you share it.</p>
 </header>
 
 <div class="card">
@@ -143,18 +161,19 @@ function tableRows(){
 }
 
 // ---- OCR (photo OR PDF, all on this phone) ----
-// Engine asset locations. In the packaged APK these are REWRITTEN to local
-// bundled files (see build-apk.yml) so OCR works fully OFFLINE. corePath points
-// at the NON-SIMD core on purpose: it needs no SharedArrayBuffer, which an
-// Android WebView does not provide (the SIMD core would fail there).
-const OCR_WORKER = "https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/worker.min.js";
-const OCR_CORE   = "https://cdn.jsdelivr.net/npm/tesseract.js-core@5/tesseract-core.wasm.js";
-const OCR_LANG   = "https://tessdata.projectnaptha.com/4.0.0";
-const PDF_WORKER = "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js";
-// Online (CDN) the language file is gzipped (eng.traineddata.gz). In the APK the
-// build ships it UNCOMPRESSED as eng.traineddata, so the packaged copy sets this
-// to false (rewritten by build-apk.yml) — otherwise Tesseract 404s on the .gz.
-const OCR_GZIP = true;
+// Engine asset locations — ALL same-origin (vendored in lib/), both in the
+// packaged APK and when this page is opened directly in a browser. Nothing here
+// may ever point at an external host: this page holds customer PII, and the CSP
+// meta tag in <head> blocks off-origin fetches anyway. corePath points at the
+// NON-SIMD core on purpose: it needs no SharedArrayBuffer, which an Android
+// WebView does not provide (the SIMD core would fail there).
+const OCR_WORKER = "lib/worker.min.js";
+const OCR_CORE   = "lib/tesseract-core.wasm.js";
+const OCR_LANG   = "lib";
+const PDF_WORKER = "lib/pdf.worker.min.js";
+// The vendored language file ships UNCOMPRESSED as lib/eng.traineddata, so gzip
+// must be false — otherwise Tesseract looks for eng.traineddata.gz and 404s.
+const OCR_GZIP = false;
 
 if(window.pdfjsLib){ pdfjsLib.GlobalWorkerOptions.workerSrc = PDF_WORKER; }
 

@@ -23,7 +23,7 @@ def test_pii_not_readable_in_raw_db_file(seeded_case):
     appear anywhere in the raw .db file bytes."""
     raw = _raw_db_bytes()
     for plaintext in (b"RAMESH KUMAR", b"9876543210", b"3577864748",
-                      b"RAJU KUMAR", b"VILL-AHIRAULI"):
+                      b"RAJU KUMAR", b"VILL-TESTPUR"):
         assert plaintext not in raw, f"PII LEAK: {plaintext} found in raw DB file"
 
 
@@ -34,9 +34,9 @@ def test_app_reads_back_correct_plaintext(seeded_case):
     assert case["mobile"] == "9876543210"
     assert case["account_number"] == "3577864748"
     assert case["father_name"] == "RAJU KUMAR"
-    assert case["address"] == "VILL-AHIRAULI"
+    assert case["address"] == "VILL-TESTPUR"
     # non-PII fields untouched
-    assert case["village"] == "Ahiraule"
+    assert case["village"] == "Testpur"
     assert case["balance_band"] == "100<1000"
 
 
@@ -89,7 +89,7 @@ def test_purge_on_case_closed_via_tracking(seeded_case):
     assert case["address"] is None
     assert case["pii_purged_at"] is not None
     # non-identifying fields survive for reporting
-    assert case["village"] == "Ahiraule"
+    assert case["village"] == "Testpur"
     assert case["balance_band"] == "100<1000"
 
     # the ciphertext itself is gone from disk too (not just re-masked)

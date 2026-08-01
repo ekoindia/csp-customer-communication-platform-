@@ -14,7 +14,7 @@ def _write_csv(tmp_path, rows_text):
 def test_csv_pipeline_creates_cases_and_messages(db, tmp_path):
     csv_text = (
         "Account Number,Name,Mobile,Balance Band,Village\n"
-        "3577864748,RAMESH KUMAR,9876543210,100<1000,Ahiraule\n"
+        "3577864748,RAMESH KUMAR,9876543210,100<1000,Testpur\n"
         "3577864749,SITA DEVI,9876500000,1000<10000,Tamkuhi\n"
     )
     path = _write_csv(tmp_path, csv_text)
@@ -46,7 +46,7 @@ def test_batch_upload_merges_multiple_files_into_one_batch(db, tmp_path):
     first = tmp_path / "first.csv"
     first.write_text(
         "Account Number,Name,Mobile,Balance Band,Village\n"
-        "1,RAMESH,9876543210,100<1000,Ahiraule\n",
+        "1,RAMESH,9876543210,100<1000,Testpur\n",
         encoding="utf-8",
     )
     second = tmp_path / "second.csv"
@@ -131,7 +131,7 @@ def test_top_band_message_generated_but_not_auto_queued(db, tmp_path):
 
 
 def test_missing_required_column_fails_cleanly(db, tmp_path):
-    path = _write_csv(tmp_path, "Name,Village\nRAMESH,Ahiraule\n")
+    path = _write_csv(tmp_path, "Name,Village\nRAMESH,Testpur\n")
     batch_id, stats = process_upload(path, "inoperative_accounts")
     assert stats["valid"] == 0
     assert "Required columns" in stats["errors"][0]["reason"]

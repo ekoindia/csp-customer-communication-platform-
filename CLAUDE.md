@@ -163,9 +163,9 @@ Customer + classification fields (from `customer_cases`):
     "account_number": "34XXXXXXXX",
     "father_name": "RAJU KUMAR",
     "balance_band": "100<1000",
-    "village": "Ahiraule",
-    "taluka": "Tamkuhi Raj",
-    "address": "VILL-AHIRAULI DIST-KUSHINAGAR 274302"
+    "village": "Testpur",
+    "taluka": "Sample Block",
+    "address": "VILL-TESTPUR SAMPLE BLOCK 000001"
   },
   "classification": {
     "band_label": "100<1000",
@@ -186,13 +186,13 @@ linked by the same `case_id`:
 ```json
 {
   "csp": {
-    "name": "Dudahi CSP",
+    "name": "Sample CSP",
     "phone": "98XXXXXXXX",
-    "address": "Dudahi, Tamkuhi Raj, Kushinagar"
+    "address": "Sample Block, Testpur District"
   },
   "communication": {
-    "wa_message": "Namaste Ramesh ji, aapke SBI bank account mein kaafi samay se koi len-den nahi hua hai jiske karan account band pada hai. Ise dobara chalu karwane ke liye kripya humse sampark karein.\n\nDudahi CSP\nDudahi, Tamkuhi Raj\n98XXXXXXXX\n\n- Dudahi CSP",
-    "sms_message": "Namaste Ramesh ji, aapka SBI account band pada hai. Sampark karein: Dudahi CSP 98XXXXXXXX",
+    "wa_message": "Namaste Ramesh ji, aapke SBI bank account mein kaafi samay se koi len-den nahi hua hai jiske karan account band pada hai. Ise dobara chalu karwane ke liye kripya humse sampark karein.\n\nSample CSP\nSample Block, Testpur District\n98XXXXXXXX\n\n- Sample CSP",
+    "sms_message": "Namaste Ramesh ji, aapka SBI account band pada hai. Sampark karein: Sample CSP 98XXXXXXXX",
     "template_id": "template_1",
     "channel": "whatsapp",
     "status": "wa_delivered",
@@ -661,7 +661,7 @@ walk in before/without a message being sent) as well as via
 
 ## 22. Data the bank sends — confirmed columns
 
-From scanned PDF analysis (Kushinagar district, Tamkuhi Raj taluka, CSP 1ABXXXXX):
+From scanned PDF analysis (sample district, sample taluka, CSP code masked):
 
 | Column | Required | Example |
 |--------|----------|---------|
@@ -673,9 +673,9 @@ From scanned PDF analysis (Kushinagar district, Tamkuhi Raj taluka, CSP 1ABXXXXX
 | Balance band | Yes | 100<1000 |
 | Father name | No | RAJU KUMAR |
 | Mobile number | Yes | 98XXXXXXXX |
-| Taluka | No | Tamkuhi Raj |
-| Village | No | Ahiraule |
-| Address | No | VILL-AHIRAULI DIST-KUSHINAGAR 274302 |
+| Taluka | No | Sample Block |
+| Village | No | Testpur |
+| Address | No | VILL-TESTPUR SAMPLE BLOCK 000001 |
 
 **Account type: Jan Dhan (zero balance minimum — no minimum balance requirement)**
 

@@ -42,15 +42,15 @@ def test_onboarding_creates_credentials_branch_and_file(fresh_db, tmp_path, monk
     c = make_dashboard_client()
     r = c.post("/onboarding", data={
         "login_id": "1AB50895", "password": "secret9", "confirm_password": "secret9",
-        "csp_name": "Dudahi CSP", "branch_code": "1332",
-        "csp_address": "Dudahi, Tamkuhi Raj, Kushinagar", "csp_phone": "9800000000",
+        "csp_name": "Sampletown CSP", "branch_code": "1332",
+        "csp_address": "Sampletown, Tamkuhi Raj, Kushinagar", "csp_phone": "9800000000",
     })
     assert r.status_code == 302 and r.headers["Location"].endswith("/login")
 
     # account + branch persisted
     assert get_user("1AB50895") is not None
     b = get_branch()
-    assert b["csp_name"] == "Dudahi CSP" and b["branch_code"] == "1332"
+    assert b["csp_name"] == "Sampletown CSP" and b["branch_code"] == "1332"
 
     # CSP_Login.txt written with the chosen credentials
     written = open(str(tmp_path / "CSP_Login.txt"), encoding="utf-8").read()

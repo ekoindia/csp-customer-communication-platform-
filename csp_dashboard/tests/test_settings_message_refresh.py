@@ -10,11 +10,11 @@ from database import queries
 
 
 def test_address_change_updates_unsent_messages(seeded_case):
-    update_csp_settings("Dudahi CSP", "9876500000", "OLD ADDRESS WARD 1", "1332")
+    update_csp_settings("Sampletown CSP", "9876500000", "OLD ADDRESS WARD 1", "1332")
     message_engine.generate_single_message(seeded_case)
     assert "OLD ADDRESS WARD 1" in queries.get_message(seeded_case)["wa_message"]
 
-    update_csp_settings("Dudahi CSP", "9876500000", "NEW ADDRESS WARD 9", "1332")
+    update_csp_settings("Sampletown CSP", "9876500000", "NEW ADDRESS WARD 9", "1332")
     n = message_engine.regenerate_unsent_messages()
 
     assert n == 1
@@ -42,11 +42,11 @@ def test_name_change_reaches_both_channels(seeded_case):
 def test_already_queued_message_is_left_alone(seeded_case):
     """A queued/sent message is the record of what the customer got — rewriting it
     would falsify history (and it can't be un-sent)."""
-    update_csp_settings("Dudahi CSP", "9876500000", "OLD ADDRESS", "1332")
+    update_csp_settings("Sampletown CSP", "9876500000", "OLD ADDRESS", "1332")
     message_engine.generate_single_message(seeded_case)
     approval.approve_case(seeded_case)          # now queued
 
-    update_csp_settings("Dudahi CSP", "9876500000", "NEW ADDRESS", "1332")
+    update_csp_settings("Sampletown CSP", "9876500000", "NEW ADDRESS", "1332")
     n = message_engine.regenerate_unsent_messages()
 
     assert n == 0

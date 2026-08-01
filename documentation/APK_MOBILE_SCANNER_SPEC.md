@@ -142,6 +142,18 @@ Your APK must decrypt `sample.cspx` (with `test-pass-123`) back to
 
 1. **OCR must be on-device / offline.** No cloud OCR, no uploading the PDF/image
    anywhere. (DPDP — customer data never leaves the phone.)
+   **1a. No external origin on the scanner page — not even for library code.**
+   Every library is vendored in `csp_dashboard/mobile_scanner/lib/` (integrity:
+   `lib/SHA256SUMS`) and loaded same-origin, and the page sends a
+   Content-Security-Policy that blocks off-origin fetches. Until 2026-07-31 the
+   browser-served copy pulled Tesseract.js / SheetJS / PDF.js from
+   `cdn.jsdelivr.net` and the language data from `tessdata.projectnaptha.com`;
+   the APK was already immune (assets bundled, `shouldInterceptRequest` blocks
+   every non-asset host, and no `INTERNET` permission), but the browser/PWA copy
+   was not. No image was uploaded, yet whoever served that script could have read
+   the bank document and the extracted PII out of the page — so on a page that
+   handles customer data a CDN is not "just program code". `build-apk.yml` now
+   fails the build if a CDN URL reappears in `scan.html`.
 2. **Never send the plaintext Excel over WhatsApp** — only the `.cspx`.
 3. **Eko name never appears** in the app UI or output (CSP-facing only), same as
    the rest of the platform.

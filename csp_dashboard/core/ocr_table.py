@@ -1304,7 +1304,7 @@ def _clean_village(v: str) -> str:
     """The village column is narrow and sits between the taluka (left) and the
     wide address (right) columns, so it frequently catches BLEED from both — a
     trailing taluka word ('Raj'), or a leading fragment of the address
-    ('AHIRAULI', 'DUDAHI', 'DU', 'AH'). The village on this form is a single
+    ('TESTPUR', 'SAMPLETOWN', 'DU', 'AH'). The village on this form is a single
     place name, so: drop taluka words, address markers, and anything with a
     digit, then keep the first surviving token. (The review screen is the final
     fix for the rare multi-word village.)"""

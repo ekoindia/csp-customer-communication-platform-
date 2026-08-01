@@ -1,7 +1,11 @@
 """Some bank lists print the account number and the name with NO gap
 ("50000000001Ramesh Kumar"), so the reader returns them as ONE token. Digit-
 cleaning that token used to DROP the first name word — names came out as "KUMAR"
-instead of "RAMESH KUMAR". These tests lock the repair."""
+instead of "RAMESH KUMAR". These tests lock the repair.
+
+Fixtures below are SYNTHETIC (same series as scripts/make_dummy_data.py). Real
+customer rows must never be pasted into a test — DPDP, see
+documentation/OCR_CUSTOM_MODEL_PLAN.md §4a."""
 
 import numpy as np
 import pytest
@@ -23,11 +27,11 @@ def _words(rows):
 
 ROWS = [
     ("50000000001", "Ramesh",  "Kumar",  "9990000001"),
-    ("50000000002", "SITA",    "KUMARI", "9990000002"),
-    ("50000000003", "MOHAN", "DEVI",   "9990000003"),
-    ("50000000004", "Rakesh", "Verma", "9990000004"),
-    ("50000000005", "Suresh",  "Kumar",  "9990000005"),
-    ("50000000006", "SUNITA",  "DEVI", "9990000006"),
+    ("50000000002", "SITA",    "DEVI",   "9990000002"),
+    ("50000000003", "Mohan",   "Lal",    "9990000003"),
+    ("50000000004", "GEETA",   "KUMARI", "9990000004"),
+    ("50000000005", "Rakesh",  "Verma",  "9990000005"),
+    ("50000000006", "SUNITA",  "KUMARI", "9990000006"),
 ]
 
 

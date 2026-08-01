@@ -168,12 +168,18 @@ SERVER_OCR_RETRIES = int(os.environ.get("SERVER_OCR_RETRIES", "2"))
 
 # ── OnnxTR "heavy" arches — the accurate engine for the CENTRALIZED SERVER ────
 # The server (Dell PowerEdge R730: 40 vCPU, 125 GiB RAM, NO GPU) has compute to
-# spare, so it runs docTR's accuracy-leading arches instead of the small bundled
-# ones the 4 GB CSP box uses. Weights are fetched by OnnxTR on first use and
-# cached on disk — a MODEL download, never customer data, so DPDP is unaffected.
-# The centralized OCR path forces this on automatically; the 4 GB box keeps the
-# small bundled models (OCR_ONNXTR_HEAVY stays 0 there). VLM-class OCR is NOT
-# used: no GPU, so it would be minutes per page.
+# spare, so it CAN run docTR's accuracy-leading arches (db_resnet50 + parseq)
+# instead of the small bundled ones the 4 GB CSP box uses. parseq is not bundled;
+# OnnxTR fetches it on first use and caches it on disk — a MODEL download, never
+# customer data, so DPDP is unaffected (and gated by OCR_ALLOW_MODEL_DOWNLOAD,
+# which only the server sets).
+# NOT automatic: this is opt-in per machine via the OCR_ONNXTR_HEAVY env, set in
+# admin_dashboard/deploy/restart_admin.sh on the server and never on a CSP box.
+# It is currently left OFF pending a per-page LATENCY benchmark — parseq
+# recognition on CPU is far slower than crnn_vgg16_bn and could push a 29-page
+# scan past SERVER_OCR_TIMEOUT_SEC. The cheaper, already-measured win is
+# OCR_ONNXTR_DET=resnet50 (detection only) below, which the server DOES set.
+# VLM-class OCR is NOT used: no GPU, so it would be minutes per page.
 # Process-time SECOND LOOK at a page (see core/ocr_table.extract_rows_adaptive).
 # Our real gap is missed rows on dense/faint scans; a second pass with different
 # pre-processing finds some of them and the row sets are merged IN MEMORY (no
@@ -191,6 +197,20 @@ OCR_ALLOW_MODEL_DOWNLOAD = os.environ.get("OCR_ALLOW_MODEL_DOWNLOAD", "0")
 OCR_ONNXTR_HEAVY = os.environ.get("OCR_ONNXTR_HEAVY", "0") == "1"
 ONNXTR_DET_ARCH = os.environ.get("ONNXTR_DET_ARCH", "db_resnet50")    # detection
 ONNXTR_RECO_ARCH = os.environ.get("ONNXTR_RECO_ARCH", "parseq")       # recognition
+
+# Detector used by the LIGHT (default) bundle — the middle setting between the
+# 4 GB box's models and the full heavy pair above.
+#   "mobilenet" = db_mobilenet_v3_large (16 MB)  -> the 4 GB CSP box. DEFAULT.
+#   "resnet50"  = db_resnet50 (100 MB, BUNDLED)  -> the centralized OCR server.
+# Recognition stays crnn_vgg16_bn either way (proven best on account/mobile
+# DIGITS), so this upgrades ROW DETECTION ONLY — the gap where db_mobilenet
+# misses rows on dense/packed pages (52 vs 50 on a real page). Detection runs
+# once per page (det_bs=1) while recognition dominates per-page cost, so the
+# added latency is small — unlike switching recognition to parseq.
+# NOTE: this key MUST exist for core/ocr_table._build_bundled_onnxtr to ever
+# take the resnet50 branch; while it was undefined that branch was unreachable
+# and the bundled db_resnet50.onnx was never loaded.
+OCR_ONNXTR_DET = os.environ.get("OCR_ONNXTR_DET", "mobilenet").lower()
 
 # ── Minimum hardware the platform supports (the "hardware constraint") ───────
 # Single source of truth, used by the install-time gate (INSTALL.bat) and the

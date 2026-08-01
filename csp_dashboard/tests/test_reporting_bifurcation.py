@@ -76,7 +76,7 @@ def test_category_breakdown_discovers_only_dimensions_with_data(db):
     """A bandless list must still produce groupings (village/taluka) — and the
     band dimension must be absent entirely, not an empty/"NA" bucket."""
     queries.insert_document("B_BIF", "inoperative_accounts", "f.csv", "csv")
-    for i, (village, band) in enumerate([("Ahiraule", ""), ("Ahiraule", ""),
+    for i, (village, band) in enumerate([("Testpur", ""), ("Testpur", ""),
                                          ("Belsand", "")], start=1):
         cid = f"C_DIM_{i}"
         queries.insert_customer_case(
@@ -92,7 +92,7 @@ def test_category_breakdown_discovers_only_dimensions_with_data(db):
     assert "village" in dims and "taluka" in dims
     assert "band_label" not in dims          # no band in this list at all
     villages = {c["value"]: c["total"] for c in cats if c["dimension"] == "village"}
-    assert villages == {"Ahiraule": 2, "Belsand": 1}
+    assert villages == {"Testpur": 2, "Belsand": 1}
 
 
 def test_category_breakdown_includes_band_when_present(db):

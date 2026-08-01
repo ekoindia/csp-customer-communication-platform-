@@ -40,7 +40,7 @@ def _fake_app(tmpdir):
     """A throwaway 'installed app' tree the updater will patch."""
     app = tmpdir.mkdir("app")
     app.join("VERSION").write("1.0.0\n")
-    app.join("config.py").write("CSP_NAME = 'Dudahi CSP'  # local, must survive\n")
+    app.join("config.py").write("CSP_NAME = 'Sampletown CSP'  # local, must survive\n")
     app.join(".env").write("ADMIN_CSP_ID=demo\nADMIN_API_KEY=real-secret\nSERVER_OCR_ENABLED=1\n")
     app.join("newfeature.py").ensure(file=False)  # absent before update
     app.mkdir("database").join("csp_platform.db").write("LOCAL-CUSTOMER-DATA")
@@ -78,7 +78,7 @@ def test_stage_and_apply_preserves_data(tmpdir, monkeypatch, top_folder):
     assert open(os.path.join(str(app), "VERSION")).read().strip() == "1.1.0"
     assert "bridge 1.1.0" in open(os.path.join(str(app), "whatsapp", "wa_server.js")).read()
     # PRESERVED: config.py, .env (CSP identity + key), local DB, WhatsApp session
-    assert "Dudahi CSP" in open(os.path.join(str(app), "config.py")).read()
+    assert "Sampletown CSP" in open(os.path.join(str(app), "config.py")).read()
     env_after = open(os.path.join(str(app), ".env")).read()
     assert "ADMIN_API_KEY=real-secret" in env_after and "SERVER_OCR_ENABLED=1" in env_after
     assert open(os.path.join(str(app), "database", "csp_platform.db")).read() == "LOCAL-CUSTOMER-DATA"
@@ -149,7 +149,7 @@ def test_admin_publish_and_sync_flow(tmpdir, monkeypatch):
     assert j["update_sha256"] == "abc123"
 
     # the CSP checks in (so it's a known member of the fleet)
-    c.post("/api/v1/report", json={"csp_id": "CSP001", "name": "Dudahi CSP"},
+    c.post("/api/v1/report", json={"csp_id": "CSP001", "name": "Sampletown CSP"},
            headers={"X-API-Key": api_key})
 
     # queue "update now" for the CSP -> next sync delivers the command exactly once
