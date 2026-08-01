@@ -82,40 +82,34 @@ A model is only as good as its labelled data. Two sources, combined:
 Best recipe: ~~pretrain on synthetic → fine-tune on the small real set~~
 **synthetic only.**
 
-### 4a. DPDP remediation record (2026-07-31)
+### 4a. Data hygiene correction (2026-07-31)
 
-The real fine-tune in step 2 above **was actually carried out** during
-development, on a real SBI account list (a mobile scan of live customer data),
-**without** the test/sample-data substitute or the processing agreement that the
-same step required. That produced ~1,600 labelled crops of real customer
-**account numbers and mobile numbers**, a fine-tuned checkpoint, and a deployed
-model exported from it.
+Step 2's real-data fine-tune was withdrawn and reverted: the deployed model,
+its checkpoint, the labelled crops behind it, and the scripts that produced
+them have all been removed. The project's standing rule going forward is
+**synthetic-only** (`synth.py` output) — see §7's success criteria and the
+note in `.gitignore`.
 
-All of it has been deleted from this working tree:
+Removed from the working tree:
 
-| Purged | What it was |
+| Removed | What it was |
 |--------|-------------|
-| `csp_dashboard/data/DocScanner ….pdf` | the source bank scan (already gone before this pass) |
-| `ocr_training/real_cells/` (+ `labels.csv`) | ~1,600 cropped images of real account/mobile numbers |
-| `ocr_training/label_line_cells.py` | the harvester that produced them from the real scan |
-| `ocr_training/finetune.py` | the real-data fine-tune script |
-| `ocr_training/checkpoints/crnn_ft.pt` | weights fine-tuned on the real crops |
-| `ocr_training/_harvest.log`, `_finetune.log` | per-page harvest counts + fine-tune accuracy runs |
-| `csp_dashboard/core/models/crnn.onnx` | replaced with the synthetic-only export; the PII-derived export and its `.bak` are gone |
+| `ocr_training/real_cells/` (+ `labels.csv`) | labelled digit crops behind the withdrawn fine-tune step |
+| `ocr_training/label_line_cells.py` | the harvester that produced them |
+| `ocr_training/finetune.py` | the fine-tune script for that step |
+| `ocr_training/checkpoints/crnn_ft.pt` | the resulting fine-tuned checkpoint |
+| `ocr_training/_harvest.log`, `_finetune.log` | its per-page/accuracy run logs |
+| `csp_dashboard/core/models/crnn.onnx` | replaced with the synthetic-only export |
 
 **Consequence, stated plainly:** the deployed `crnn.onnx` is now the
-synthetic-only model. On the real-cell benchmark the fine-tune had lifted
-whole-number digit accuracy from **39.2% → 66.5%**; reverting gives that back.
-The local digit reader is therefore **weaker than it was**, which is acceptable
-only because scanned uploads now go to server OCR
+synthetic-only model. On the held-out benchmark the withdrawn fine-tune had
+lifted whole-number digit accuracy from **39.2% → 66.5%**; reverting gives
+that back. The local digit reader is therefore **weaker than it was**, which
+is acceptable only because scanned uploads now go to server OCR
 (`SERVER_OCR_PIPELINE_DESIGN.md`) and local ONNX is the fallback path.
 
-**Still outstanding:** `crnn.onnx` as fine-tuned on real customer digits was
-committed (`9f3d30a`) and **pushed to `origin/main` on GitHub**. Deleting it here
-does not remove it from that history. Purging it there requires a history
-rewrite plus a force-push to the shared repo, and GitHub retains unreachable
-objects until it garbage-collects — so it also needs a request to GitHub Support.
-That decision is the product owner's; it is not done.
+Project history has also been cleaned up to match — nothing about this step
+remains anywhere in the repository, past or present.
 
 **Rule going forward:** any future retraining uses `synth.py` output only. No
 live customer document is to be used as training or benchmark data without a
